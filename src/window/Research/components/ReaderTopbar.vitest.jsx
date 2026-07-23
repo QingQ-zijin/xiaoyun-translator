@@ -54,7 +54,7 @@ describe('论文阅读器翻译模型状态', () => {
 
         expect(onPaperChange).toHaveBeenCalledWith('paper-b');
         expect(screen.getByLabelText('当前缩放比例').textContent).toContain('125%');
-        expect(screen.getByTitle(/Ctrl \+ 鼠标滚轮/)).not.toBeNull();
+        expect(screen.getByTitle(/(Ctrl|⌘) \+ 鼠标滚轮/)).not.toBeNull();
         expect(screen.queryByRole('button', { name: /放大|缩小/ })).toBeNull();
     });
 
