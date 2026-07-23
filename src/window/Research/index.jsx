@@ -248,9 +248,12 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
 
     useEffect(() => {
         let cancelled = false;
+        let timer = null;
         const refresh = async () => {
+            let ready = false;
             try {
                 const status = await getTranslationStatus();
+                ready = status?.ready === true;
                 if (!cancelled) setTranslationStatus(status);
             } catch (reason) {
                 if (!cancelled) {
@@ -261,12 +264,15 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                     }));
                 }
             }
+            if (!cancelled) {
+                // 启动阶段快速追踪预热结果；就绪后降低轮询频率，避免无意义请求。
+                timer = setTimeout(refresh, ready ? 30_000 : 2_000);
+            }
         };
         void refresh();
-        const interval = setInterval(refresh, 30_000);
         return () => {
             cancelled = true;
-            clearInterval(interval);
+            clearTimeout(timer);
         };
     }, []);
     const isReader = Boolean(paperId && document);

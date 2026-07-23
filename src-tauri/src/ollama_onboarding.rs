@@ -126,6 +126,10 @@ fn is_local_host(host: &str) -> bool {
         })
 }
 
+pub(crate) fn is_local_ollama_endpoint(endpoint: &OllamaEndpointSettings) -> bool {
+    is_local_host(&normalized_host(endpoint))
+}
+
 fn output_text(output: &std::process::Output) -> String {
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if !stdout.is_empty() {
@@ -425,15 +429,14 @@ fn spawn_ollama_server(executable: &Path) -> Result<std::process::Child, String>
         .map_err(|error| format!("启动 Ollama 服务失败：{error}"))
 }
 
-/// 启动本机 Ollama 服务。远程地址不会被本应用管理。
-#[tauri::command]
-pub async fn ollama_start_local_service() -> Result<OllamaSetupStatus, String> {
-    let settings = get_settings_v2()?;
-    let endpoint = settings.ollama.translation;
-    if !is_local_host(&normalized_host(&endpoint)) {
+/// 确保本机 Ollama 服务已启动。供设置页和应用启动恢复流程共同使用。
+pub(crate) async fn ensure_local_ollama_service(
+    endpoint: &OllamaEndpointSettings,
+) -> Result<OllamaSetupStatus, String> {
+    if !is_local_ollama_endpoint(endpoint) {
         return Err("当前配置是远程 Ollama 地址，请在服务器上启动服务".to_string());
     }
-    let current = detect_setup_status(&endpoint).await?;
+    let current = detect_setup_status(endpoint).await?;
     if current.running {
         return Ok(current);
     }
@@ -442,18 +445,28 @@ pub async fn ollama_start_local_service() -> Result<OllamaSetupStatus, String> {
     let mut child = spawn_ollama_server(&executable.path)?;
     for _ in 0..40 {
         sleep(Duration::from_millis(250)).await;
-        if let Some(exit) = child
+        let child_exit = child
             .try_wait()
-            .map_err(|error| format!("检查 Ollama 服务状态失败：{error}"))?
-        {
-            return Err(format!("Ollama 服务未能启动（退出码 {exit}）"));
+            .map_err(|error| format!("检查 Ollama 服务状态失败：{error}"))?;
+        // 官方托盘程序可能恰好也在启动 Ollama。即使本应用拉起的第二个
+        // `ollama serve` 因端口占用退出，也应先以 API 健康状态为准。
+        match detect_setup_status(endpoint).await {
+            Ok(status) if status.running => return Ok(status),
+            Ok(_) | Err(_) if child_exit.is_none() => continue,
+            Ok(_) | Err(_) => {}
         }
-        let status = detect_setup_status(&endpoint).await?;
-        if status.running {
-            return Ok(status);
+        if let Some(exit) = child_exit {
+            return Err(format!("Ollama 服务未能启动（退出码 {exit}）"));
         }
     }
     Err("Ollama 启动超时，请检查防火墙或在终端运行 `ollama serve` 查看详情".to_string())
+}
+
+/// 启动本机 Ollama 服务。远程地址不会被本应用管理。
+#[tauri::command]
+pub async fn ollama_start_local_service() -> Result<OllamaSetupStatus, String> {
+    let settings = get_settings_v2()?;
+    ensure_local_ollama_service(&settings.ollama.translation).await
 }
 
 fn prune_pull_cancellations(pulls: &mut HashMap<String, PullCancellationSlot>) {

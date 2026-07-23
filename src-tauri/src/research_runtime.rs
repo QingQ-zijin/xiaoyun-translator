@@ -6,6 +6,7 @@
 use crate::config::{
     get_settings_v2, OllamaEndpointSettings, UNIFIED_OLLAMA_CONTEXT_TOKENS, UNIFIED_OLLAMA_MODEL,
 };
+use crate::ollama_onboarding::{ensure_local_ollama_service, is_local_ollama_endpoint};
 use crate::research::{
     index_page_internal, lexical_search_internal, paper_chunk_counts, research_library_root,
     with_database, SearchHit,
@@ -40,6 +41,7 @@ const REFUSAL_TEXT: &str = "当前论文索引中没有足够证据回答这个�
 const LEGACY_APP_MODEL_PREFIXES: [&str; 3] = ["translategemma", "qwen3-vl", "embeddinggemma"];
 const TRANSLATION_CANCEL_TOMBSTONE_TTL: Duration = Duration::from_secs(30);
 const MAX_TRANSLATION_CANCEL_TOMBSTONES: usize = 256;
+const STARTUP_PREWARM_MAX_ATTEMPTS: usize = 20;
 
 static JOB_SEQUENCE: AtomicUsize = AtomicUsize::new(1);
 static TRANSLATION_REQUEST_SEQUENCE: AtomicUsize = AtomicUsize::new(1);
@@ -602,6 +604,28 @@ async fn is_model_installed(endpoint: &OllamaEndpointSettings) -> Result<bool, S
         || names.contains(configured.strip_suffix(":latest").unwrap_or(configured)))
 }
 
+async fn is_model_running(endpoint: &OllamaEndpointSettings) -> Result<bool, String> {
+    let response = client()?
+        .get(format!("{}/api/ps", normalized_host(endpoint)))
+        .send()
+        .await
+        .map_err(|error| format!("无法读取 Ollama 运行状态：{error}"))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "Ollama 运行状态请求失败：HTTP {}",
+            response.status()
+        ));
+    }
+    let body: Value = response
+        .json()
+        .await
+        .map_err(|error| format!("Ollama 运行状态格式错误：{error}"))?;
+    let names = model_names(&body);
+    let configured = endpoint.model.trim();
+    Ok(names.contains(configured)
+        || names.contains(configured.strip_suffix(":latest").unwrap_or(configured)))
+}
+
 async fn ensure_success(response: &Response, action: &str) -> Result<(), String> {
     if response.status().is_success() {
         Ok(())
@@ -691,32 +715,87 @@ async fn unload_legacy_app_models(endpoint: &OllamaEndpointSettings) {
 pub(crate) async fn prewarm_translation_endpoint(
     endpoint: &OllamaEndpointSettings,
 ) -> Result<(), String> {
+    // Ollama 文档约定空 messages 为“只加载模型”，不会进入普通生成路径。
     let response = client()?
         .post(format!("{}/api/chat", normalized_host(endpoint)))
-        .timeout(Duration::from_secs(45))
+        .timeout(Duration::from_secs(120))
         .json(&json!({
             "model": UNIFIED_OLLAMA_MODEL,
-            "messages": [{"role": "user", "content": ""}],
+            "messages": [],
             "stream": false,
-            "think": false,
             "keep_alive": -1,
             "options": {
-                "num_ctx": UNIFIED_OLLAMA_CONTEXT_TOKENS,
-                "num_predict": 1,
-                "temperature": 0
+                "num_ctx": UNIFIED_OLLAMA_CONTEXT_TOKENS
             }
         }))
         .send()
         .await
         .map_err(|error| format!("无法预热统一 Gemma 4 模型：{error}"))?;
-    ensure_success(&response, "预热统一 Gemma 4 模型").await
+    ensure_success(&response, "预热统一 Gemma 4 模型").await?;
+    for _ in 0..8 {
+        match is_model_running(endpoint).await {
+            Ok(true) => return Ok(()),
+            Ok(false) | Err(_) => sleep(Duration::from_millis(250)).await,
+        }
+    }
+    Err("Ollama 已接受预热请求，但 /api/ps 未确认模型已载入".to_string())
+}
+
+fn startup_prewarm_retry_delay(completed_attempts: usize) -> Duration {
+    Duration::from_millis(match completed_attempts {
+        0 => 250,
+        1 => 500,
+        2 => 1_000,
+        3 => 2_000,
+        _ => 5_000,
+    })
+}
+
+async fn prewarm_translation_endpoint_with_retry(
+    endpoint: &OllamaEndpointSettings,
+) -> Result<usize, String> {
+    for attempt in 0..STARTUP_PREWARM_MAX_ATTEMPTS {
+        let settings = get_settings_v2()?;
+        if !settings.ollama.enabled {
+            return Err("Ollama 后端已关闭，停止启动预热".to_string());
+        }
+        if settings.ollama.translation.request_path != endpoint.request_path {
+            return Err("Ollama 地址已变更，停止旧地址的启动预热".to_string());
+        }
+        match prewarm_translation_endpoint(endpoint).await {
+            Ok(()) => return Ok(attempt + 1),
+            Err(error) if attempt + 1 == STARTUP_PREWARM_MAX_ATTEMPTS => {
+                return Err(format!(
+                    "连续 {STARTUP_PREWARM_MAX_ATTEMPTS} 次预热仍未成功：{error}"
+                ));
+            }
+            Err(error) => {
+                let delay = startup_prewarm_retry_delay(attempt);
+                if attempt == 0 || attempt == 3 || attempt == 9 {
+                    warn!(
+                        "统一 Gemma 4 尚未就绪，将在 {}ms 后重试（{}/{}）：{}",
+                        delay.as_millis(),
+                        attempt + 1,
+                        STARTUP_PREWARM_MAX_ATTEMPTS,
+                        error
+                    );
+                }
+                sleep(delay).await;
+            }
+        }
+    }
+    Err("统一 Gemma 4 启动预热意外结束".to_string())
 }
 
 /// 确认统一模型常驻；同一 host/model 的并发调用由 Ollama 复用同一个 runner。
 pub(crate) fn schedule_translation_prewarm() {
     tauri::async_runtime::spawn(async {
-        let Ok(settings) = get_settings_v2() else {
-            return;
+        let settings = match get_settings_v2() {
+            Ok(settings) => settings,
+            Err(error) => {
+                warn!("读取启动预热设置失败：{error}");
+                return;
+            }
         };
         // 无论统一模型开关是否开启，都先清理本应用旧版常驻模型。这样从旧版本升级后，
         // TranslateGemma/Qwen3-VL/EmbeddingGemma 不会因原来的无限 keep_alive 继续占用显存。
@@ -726,10 +805,23 @@ pub(crate) fn schedule_translation_prewarm() {
             info!("Ollama 后端已关闭，启动时未预热任何模型");
             return;
         }
-        if let Err(error) = prewarm_translation_endpoint(&settings.ollama.translation).await {
-            warn!("恢复统一 Gemma 4 模型失败：{error}");
-        } else {
-            info!("统一 Gemma 4 模型已保持常驻");
+        let endpoint = settings.ollama.translation;
+        if is_local_ollama_endpoint(&endpoint) {
+            match ensure_local_ollama_service(&endpoint).await {
+                Ok(status) if !status.model_installed => {
+                    warn!("Ollama 已启动，但统一 Gemma 4 模型尚未安装，跳过预热");
+                    return;
+                }
+                Ok(status) => info!(
+                    "Ollama 本机服务已就绪，模型安装状态={}",
+                    status.model_installed
+                ),
+                Err(error) => warn!("自动启动 Ollama 服务失败，将继续等待服务恢复：{error}"),
+            }
+        }
+        match prewarm_translation_endpoint_with_retry(&endpoint).await {
+            Ok(attempts) => info!("统一 Gemma 4 模型已保持常驻，尝试次数={attempts}"),
+            Err(error) => warn!("恢复统一 Gemma 4 模型失败：{error}"),
         }
     });
 }
@@ -1328,11 +1420,25 @@ pub async fn research_get_translation_status() -> Result<TranslationStatus, Stri
         });
     }
     Ok(match is_model_installed(&endpoint).await {
-        Ok(true) => TranslationStatus {
-            model: model.clone(),
-            enabled: true,
-            ready: true,
-            message: format!("{model} 已就绪"),
+        Ok(true) => match is_model_running(&endpoint).await {
+            Ok(true) => TranslationStatus {
+                model: model.clone(),
+                enabled: true,
+                ready: true,
+                message: format!("{model} 已加载并就绪"),
+            },
+            Ok(false) => TranslationStatus {
+                model: model.clone(),
+                enabled: true,
+                ready: false,
+                message: format!("{model} 已安装，正在启动并载入显存"),
+            },
+            Err(error) => TranslationStatus {
+                model: model.clone(),
+                enabled: true,
+                ready: false,
+                message: error,
+            },
         },
         Ok(false) => TranslationStatus {
             message: format!("翻译模型 {model} 尚未安装"),
@@ -2123,6 +2229,55 @@ mod tests {
         assert!(is_legacy_app_model("embeddinggemma:latest", unified));
         assert!(!is_legacy_app_model(unified, unified));
         assert!(!is_legacy_app_model("llama3.2:3b", unified));
+    }
+
+    #[test]
+    fn startup_prewarm_retry_uses_fast_then_bounded_backoff() {
+        assert_eq!(startup_prewarm_retry_delay(0), Duration::from_millis(250));
+        assert_eq!(startup_prewarm_retry_delay(1), Duration::from_millis(500));
+        assert_eq!(startup_prewarm_retry_delay(2), Duration::from_secs(1));
+        assert_eq!(startup_prewarm_retry_delay(3), Duration::from_secs(2));
+        assert_eq!(startup_prewarm_retry_delay(4), Duration::from_secs(5));
+        assert_eq!(startup_prewarm_retry_delay(100), Duration::from_secs(5));
+    }
+
+    #[test]
+    fn startup_prewarm_uses_documented_load_request_and_infinite_keep_alive() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (request_sender, request_receiver) = mpsc::channel();
+        let server = std::thread::spawn(move || {
+            for index in 0..2 {
+                let (mut socket, _) = listener.accept().unwrap();
+                let request = read_test_http_request(&mut socket);
+                let _ = request_sender.send(request);
+                let body = if index == 0 {
+                    r#"{"done":true}"#
+                } else {
+                    r#"{"models":[{"name":"gemma4:e4b-it-qat"}]}"#
+                };
+                write!(
+                    socket,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .unwrap();
+            }
+        });
+        let endpoint = test_translation_endpoint(format!("http://{address}"));
+        tauri::async_runtime::block_on(prewarm_translation_endpoint(&endpoint)).unwrap();
+        let load_request = request_receiver
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+        let status_request = request_receiver
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+        assert!(load_request.starts_with("POST /api/chat HTTP/1.1"));
+        assert!(load_request.contains(r#""model":"gemma4:e4b-it-qat""#));
+        assert!(load_request.contains(r#""messages":[]"#));
+        assert!(load_request.contains(r#""keep_alive":-1"#));
+        assert!(status_request.starts_with("GET /api/ps HTTP/1.1"));
+        server.join().unwrap();
     }
 
     #[test]
