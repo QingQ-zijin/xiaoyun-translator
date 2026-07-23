@@ -51,23 +51,28 @@ jobs:
             - name: Build NSIS installer
               run: pnpm tauri build
 
-            - name: Generate SHA-256 checksum
+            - name: Prepare release assets and SHA-256 checksum
               shell: pwsh
               run: |
                   $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*-setup.exe' | Select-Object -First 1
                   if (-not $installer) {
                       throw 'NSIS installer was not generated.'
                   }
-                  $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer.FullName).Hash
-                  "$hash *$($installer.Name)" | Set-Content -Encoding utf8 'checksums-windows-x64.txt'
+                  $version = (Get-Content -Raw 'package.json' | ConvertFrom-Json).version
+                  New-Item -ItemType Directory -Force -Path 'release' | Out-Null
+                  $releaseInstaller = Join-Path 'release' "xiaoyun-translator_${version}_x64-setup.exe"
+                  Copy-Item -LiteralPath $installer.FullName -Destination $releaseInstaller -Force
+                  $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $releaseInstaller).Hash
+                  "$hash *$(Split-Path -Leaf $releaseInstaller)" |
+                      Set-Content -Encoding utf8 'release/checksums-windows-x64.txt'
 
             - name: Upload workflow artifact
               uses: actions/upload-artifact@v4
               with:
                   name: xiaoyun-translator-windows-x64
                   path: |
-                      src-tauri/target/release/bundle/nsis/*-setup.exe
-                      checksums-windows-x64.txt
+                      release/xiaoyun-translator_*_x64-setup.exe
+                      release/checksums-windows-x64.txt
                   if-no-files-found: error
 
             - name: Attach installer to GitHub Release
@@ -76,5 +81,5 @@ jobs:
               with:
                   generate_release_notes: true
                   files: |
-                      src-tauri/target/release/bundle/nsis/*-setup.exe
-                      checksums-windows-x64.txt
+                      release/xiaoyun-translator_*_x64-setup.exe
+                      release/checksums-windows-x64.txt

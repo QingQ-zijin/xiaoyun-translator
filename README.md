@@ -54,7 +54,7 @@
 > [!IMPORTANT]
 > 当前发布版仅在 **Windows 10/11 x64** 上验证。安装包目前**未进行代码签名**，Windows SmartScreen 可能显示“未知发布者”。
 
-1. 从 [Releases](https://github.com/Xiaoyun-0922/xiaoyun-translator/releases/latest) 下载最新的 `小允翻译_*_x64-setup.exe`。
+1. 从 [Releases](https://github.com/Xiaoyun-0922/xiaoyun-translator/releases/latest) 下载最新的 `xiaoyun-translator_*_x64-setup.exe`。
 2. 运行安装程序。若 SmartScreen 拦截，请先核对下载来源和 Release 中的 SHA-256，再选择“更多信息 → 仍要运行”。
 3. 打开“设置 → Ollama”，按首次接入向导：
     - 打开 Ollama 官方下载页并完成安装；

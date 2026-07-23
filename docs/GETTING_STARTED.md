@@ -19,7 +19,7 @@
 ## 2. 安装 Windows 客户端
 
 1. 打开[最新 Release](https://github.com/Xiaoyun-0922/xiaoyun-translator/releases/latest)。
-2. 下载 `小允翻译_*_x64-setup.exe`。
+2. 下载 `xiaoyun-translator_*_x64-setup.exe`。
 3. 对照 Release 页面提供的 SHA-256 校验值。
 4. 双击安装。
 
