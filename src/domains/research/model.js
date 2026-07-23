@@ -6,6 +6,7 @@ export const PDF_PAGE_OVERSCAN = 1;
 export const UNCLASSIFIED_PROJECT_ID = '__unclassified__';
 
 const MULTI_SPACE_RE = /\s+/gu;
+const TAG_NAME_COLLATOR = new Intl.Collator('zh-CN', { sensitivity: 'base' });
 
 export function normalizeSearchText(value) {
     return String(value ?? '')
@@ -124,7 +125,7 @@ export function summarizeAnnotations(annotations) {
         excerpts,
         highlights,
         tags: [...tagCounts.values()].sort(
-            (left, right) => right.count - left.count || left.name.localeCompare(right.name)
+            (left, right) => right.count - left.count || TAG_NAME_COLLATOR.compare(left.name, right.name)
         ),
     };
 }
