@@ -38,7 +38,7 @@ const isTauriRuntime = () =>
         globalThis.window?.__TAURI__ || globalThis.window?.__TAURI_METADATA__ || globalThis.window?.__TAURI_INTERNALS__
     );
 
-function WorkspaceStatus({ state, error }) {
+function WorkspaceStatus({ state, error, backendReady, backendChecking, onOpenSettings }) {
     if (state === 'translating') {
         return (
             <span className='translate-workspace__status is-busy'>
@@ -66,6 +66,26 @@ function WorkspaceStatus({ state, error }) {
             </span>
         );
     }
+    if (backendChecking) {
+        return (
+            <span className='translate-workspace__status is-busy'>
+                <PiSpinnerGap aria-hidden='true' />
+                正在检测本地 AI
+            </span>
+        );
+    }
+    if (!backendReady) {
+        return (
+            <button
+                type='button'
+                className='translate-workspace__status is-error'
+                onClick={onOpenSettings}
+            >
+                <PiWarningCircle aria-hidden='true' />
+                完成本地 AI 设置
+            </button>
+        );
+    }
     return (
         <span className='translate-workspace__status'>
             <i />
@@ -74,7 +94,12 @@ function WorkspaceStatus({ state, error }) {
     );
 }
 
-export default function TranslationWorkspace() {
+export default function TranslationWorkspace({
+    onNavigate,
+    desktop = isTauriRuntime(),
+    invokeCommand = invoke,
+    statusPollMs = 2500,
+}) {
     const [sourceText, setSourceText] = useState('');
     const [result, setResult] = useState('');
     const [sourceLanguage, setSourceLanguage] = useState('auto');
@@ -86,24 +111,67 @@ export default function TranslationWorkspace() {
     const [error, setError] = useState('');
     const [copyState, setCopyState] = useState('复制');
     const [modelName, setModelName] = useState(UNIFIED_OLLAMA_MODEL);
+    const [backendReady, setBackendReady] = useState(!desktop);
+    const [backendChecking, setBackendChecking] = useState(desktop);
     const requestRef = useRef(null);
     const playVoice = useVoice();
 
     useEffect(() => {
-        if (isTauriRuntime()) {
-            void invoke('get_settings_v2')
-                .then((settings) => {
+        const handleOllamaReady = () => {
+            setBackendReady(true);
+            setBackendChecking(false);
+        };
+        globalThis.addEventListener?.('xiaoyun:ollama-ready', handleOllamaReady);
+        if (desktop) {
+            void Promise.all([invokeCommand('get_settings_v2'), invokeCommand('ollama_get_setup_status')])
+                .then(([settings, status]) => {
                     setSourceLanguage(settings?.sourceLanguage ?? 'auto');
                     setTargetLanguage(settings?.targetLanguage ?? 'zh_cn');
                     setModelName(settings?.ollama?.translation?.model ?? UNIFIED_OLLAMA_MODEL);
+                    setBackendReady(settings?.ollama?.enabled !== false && Boolean(status?.modelRunning));
                 })
-                .catch(() => undefined);
+                .catch(() => setBackendReady(false))
+                .finally(() => setBackendChecking(false));
         }
-        return () => requestRef.current?.abort();
-    }, []);
+        return () => {
+            requestRef.current?.abort();
+            globalThis.removeEventListener?.('xiaoyun:ollama-ready', handleOllamaReady);
+        };
+    }, [desktop, invokeCommand]);
+
+    useEffect(() => {
+        if (!desktop || backendChecking || backendReady) return undefined;
+        let cancelled = false;
+        let timer;
+        const poll = async () => {
+            try {
+                const [settings, status] = await Promise.all([
+                    invokeCommand('get_settings_v2'),
+                    invokeCommand('ollama_get_setup_status'),
+                ]);
+                if (cancelled) return;
+                const readyNow = settings?.ollama?.enabled !== false && Boolean(status?.modelRunning);
+                setBackendReady(readyNow);
+                if (readyNow) return;
+            } catch {
+                if (cancelled) return;
+            }
+            timer = globalThis.setTimeout(() => void poll(), statusPollMs);
+        };
+        timer = globalThis.setTimeout(() => void poll(), statusPollMs);
+        return () => {
+            cancelled = true;
+            globalThis.clearTimeout(timer);
+        };
+    }, [backendChecking, backendReady, desktop, invokeCommand, statusPollMs]);
 
     const runTranslation = useCallback(async () => {
         const text = sourceText.trim();
+        if (!backendReady) {
+            setError('本地 AI 尚未准备好。请先完成 Ollama 接入向导。');
+            setState('error');
+            return;
+        }
         if (!text) {
             setError('请先输入需要翻译的内容。');
             setState('error');
@@ -140,7 +208,7 @@ export default function TranslationWorkspace() {
             setError(String(reason?.message ?? reason));
             setState('error');
         }
-    }, [contextAfter, contextBefore, paperTitle, sourceLanguage, sourceText, targetLanguage]);
+    }, [backendReady, contextAfter, contextBefore, paperTitle, sourceLanguage, sourceText, targetLanguage]);
 
     const swapLanguages = () => {
         if (sourceLanguage === 'auto') {
@@ -189,6 +257,9 @@ export default function TranslationWorkspace() {
                 <WorkspaceStatus
                     state={state}
                     error={error}
+                    backendReady={backendReady}
+                    backendChecking={backendChecking}
+                    onOpenSettings={() => onNavigate?.('settings')}
                 />
             </header>
 
@@ -343,7 +414,7 @@ export default function TranslationWorkspace() {
                         className='main-primary-button'
                         type='button'
                         onClick={runTranslation}
-                        disabled={state === 'translating'}
+                        disabled={state === 'translating' || backendChecking || !backendReady}
                     >
                         {state === 'translating' ? (
                             <PiSpinnerGap

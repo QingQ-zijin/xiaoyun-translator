@@ -155,6 +155,7 @@ fn main() {
             ollama_open_official_download,
             ollama_start_local_service,
             ollama_pull_unified_model,
+            ollama_activate_unified_model,
             ollama_cancel_model_pull,
             ollama_vision_generate,
             cancel_ollama_vision_request,

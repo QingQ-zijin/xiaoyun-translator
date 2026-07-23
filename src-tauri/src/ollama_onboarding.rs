@@ -67,7 +67,21 @@ struct PullCancellation {
 impl PullCancellation {
     fn cancel(&self) {
         self.cancelled.store(true, Ordering::Release);
-        self.notify.notify_waiters();
+        // A pull has a single waiter at any given time. `notify_one` stores a
+        // permit when cancellation arrives between two await points, whereas
+        // `notify_waiters` would lose that notification.
+        self.notify.notify_one();
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Acquire)
+    }
+
+    async fn cancelled(&self) {
+        if self.is_cancelled() {
+            return;
+        }
+        self.notify.notified().await;
     }
 }
 
@@ -429,6 +443,19 @@ fn spawn_ollama_server(executable: &Path) -> Result<std::process::Child, String>
         .map_err(|error| format!("启动 Ollama 服务失败：{error}"))
 }
 
+fn can_spawn_local_ollama_service(platform: &str) -> bool {
+    matches!(platform, "windows" | "macos")
+}
+
+fn local_service_start_guidance(platform: &str) -> String {
+    if platform == "linux" {
+        "Linux 上不会由应用隐式启动 Ollama；请运行 `sudo systemctl start ollama`，或在终端运行 `ollama serve` 后重试"
+            .to_string()
+    } else {
+        "当前平台不会由应用隐式启动 Ollama，请按 Ollama 官方说明启动服务后重试".to_string()
+    }
+}
+
 /// 确保本机 Ollama 服务已启动。供设置页和应用启动恢复流程共同使用。
 pub(crate) async fn ensure_local_ollama_service(
     endpoint: &OllamaEndpointSettings,
@@ -439,6 +466,9 @@ pub(crate) async fn ensure_local_ollama_service(
     let current = detect_setup_status(endpoint).await?;
     if current.running {
         return Ok(current);
+    }
+    if !can_spawn_local_ollama_service(env::consts::OS) {
+        return Err(local_service_start_guidance(env::consts::OS));
     }
     let executable = discover_executable()
         .ok_or_else(|| "尚未安装 Ollama，请先打开官方下载页完成安装".to_string())?;
@@ -469,6 +499,39 @@ pub async fn ollama_start_local_service() -> Result<OllamaSetupStatus, String> {
     ensure_local_ollama_service(&settings.ollama.translation).await
 }
 
+fn ensure_activation_enabled(enabled: bool) -> Result<(), String> {
+    if enabled {
+        Ok(())
+    } else {
+        Err("Ollama 后端已关闭，请先在设置中启用并保存后重试".to_string())
+    }
+}
+
+fn ensure_model_installed_for_activation(status: &OllamaSetupStatus) -> Result<(), String> {
+    if status.model_installed {
+        Ok(())
+    } else {
+        Err(format!(
+            "统一模型 {} 尚未安装，请先下载模型后重试",
+            status.model
+        ))
+    }
+}
+
+/// 幂等地启动本机 Ollama 并将统一模型载入内存。
+#[tauri::command]
+pub async fn ollama_activate_unified_model() -> Result<OllamaSetupStatus, String> {
+    let settings = get_settings_v2()?;
+    ensure_activation_enabled(settings.ollama.enabled)?;
+    let endpoint = settings.ollama.translation;
+    let status = ensure_local_ollama_service(&endpoint).await?;
+    ensure_model_installed_for_activation(&status)?;
+    crate::research_runtime::prewarm_translation_endpoint(&endpoint)
+        .await
+        .map_err(|error| format!("统一模型激活失败：{error}"))?;
+    detect_setup_status(&endpoint).await
+}
+
 fn prune_pull_cancellations(pulls: &mut HashMap<String, PullCancellationSlot>) {
     let now = Instant::now();
     pulls.retain(|_, slot| match slot {
@@ -485,6 +548,14 @@ fn register_pull(request_id: &str) -> Result<PullRegistration, String> {
         .lock()
         .map_err(|_| "Ollama 下载取消表已损坏".to_string())?;
     prune_pull_cancellations(&mut pulls);
+    if let Some(active_request_id) = pulls.iter().find_map(|(active_request_id, slot)| {
+        (active_request_id != request_id && matches!(slot, PullCancellationSlot::Active(_)))
+            .then_some(active_request_id)
+    }) {
+        return Err(format!(
+            "已有模型下载正在进行（请求 {active_request_id}），请等待完成或先取消"
+        ));
+    }
     match pulls.remove(request_id) {
         Some(PullCancellationSlot::Active(previous)) => previous.cancel(),
         Some(PullCancellationSlot::CancelledBeforeRegistration(_)) => cancellation.cancel(),
@@ -566,6 +637,37 @@ fn send_pull_event(
         .map_err(|error| format!("发送模型下载进度失败：{error}"))
 }
 
+fn send_pull_cancelled(
+    channel: &Channel<OllamaPullProgress>,
+    request_id: &str,
+) -> Result<(), String> {
+    send_pull_event(
+        channel,
+        OllamaPullProgress {
+            request_id: request_id.to_string(),
+            state: "cancelled".to_string(),
+            status: "cancelled".to_string(),
+            message: "模型下载已取消".to_string(),
+            digest: String::new(),
+            total: 0,
+            completed: 0,
+            progress: 0.0,
+        },
+    )
+}
+
+fn ensure_pull_not_cancelled(
+    cancellation: &PullCancellation,
+    channel: &Channel<OllamaPullProgress>,
+    request_id: &str,
+) -> Result<(), String> {
+    if !cancellation.is_cancelled() {
+        return Ok(());
+    }
+    send_pull_cancelled(channel, request_id)?;
+    Err("模型下载已取消".to_string())
+}
+
 fn should_prewarm_after_pull(enabled: bool, status: &OllamaSetupStatus) -> bool {
     enabled && status.model_installed
 }
@@ -612,16 +714,22 @@ pub async fn ollama_pull_unified_model(
         return Err("为避免意外占用远程磁盘，一键下载仅支持本机 Ollama".to_string());
     }
     let registration = register_pull(&request_id)?;
-    if registration.cancellation.cancelled.load(Ordering::Acquire) {
-        return Err("模型下载已取消".to_string());
-    }
+    ensure_pull_not_cancelled(&registration.cancellation, &on_event, &request_id)?;
 
-    let response = onboarding_client()?
+    let send_request = onboarding_client()?
         .post(format!("{host}/api/pull"))
         .json(&json!({"model": UNIFIED_OLLAMA_MODEL, "stream": true}))
-        .send()
-        .await
-        .map_err(|error| format!("无法连接 Ollama 下载模型：{error}"))?;
+        .send();
+    let response = tokio::select! {
+        _ = registration.cancellation.cancelled() => {
+            send_pull_cancelled(&on_event, &request_id)?;
+            return Err("模型下载已取消".to_string());
+        }
+        response = send_request => {
+            response.map_err(|error| format!("无法连接 Ollama 下载模型：{error}"))?
+        }
+    };
+    ensure_pull_not_cancelled(&registration.cancellation, &on_event, &request_id)?;
     if !response.status().is_success() {
         return Err(pull_response_error(response).await);
     }
@@ -630,24 +738,17 @@ pub async fn ollama_pull_unified_model(
     let mut pending = Vec::<u8>::new();
     loop {
         let cancellation = registration.cancellation.clone();
+        ensure_pull_not_cancelled(&cancellation, &on_event, &request_id)?;
         let chunk = tokio::select! {
-            _ = cancellation.notify.notified() => {
-                send_pull_event(&on_event, OllamaPullProgress {
-                    request_id: request_id.clone(),
-                    state: "cancelled".to_string(),
-                    status: "cancelled".to_string(),
-                    message: "模型下载已取消".to_string(),
-                    digest: String::new(),
-                    total: 0,
-                    completed: 0,
-                    progress: 0.0,
-                })?;
+            _ = cancellation.cancelled() => {
+                send_pull_cancelled(&on_event, &request_id)?;
                 return Err("模型下载已取消".to_string());
             }
             chunk = response.chunk() => {
                 chunk.map_err(|error| format!("读取 Ollama 下载进度失败：{error}"))?
             }
         };
+        ensure_pull_not_cancelled(&cancellation, &on_event, &request_id)?;
         let Some(chunk) = chunk else {
             break;
         };
@@ -671,16 +772,42 @@ pub async fn ollama_pull_unified_model(
             parse_pull_progress(&request_id, pending.as_slice())?,
         )?;
     }
-    let mut status = detect_setup_status(&endpoint).await?;
+    ensure_pull_not_cancelled(&registration.cancellation, &on_event, &request_id)?;
+    let detect_status = detect_setup_status(&endpoint);
+    let mut status = tokio::select! {
+        _ = registration.cancellation.cancelled() => {
+            send_pull_cancelled(&on_event, &request_id)?;
+            return Err("模型下载已取消".to_string());
+        }
+        status = detect_status => status?,
+    };
+    ensure_pull_not_cancelled(&registration.cancellation, &on_event, &request_id)?;
     if !status.model_installed {
         return Err("Ollama 下载流已结束，但没有检测到 Gemma 4 E4B 模型".to_string());
     }
     if should_prewarm_after_pull(settings.ollama.enabled, &status) {
-        crate::research_runtime::prewarm_translation_endpoint(&endpoint)
-            .await
-            .map_err(|error| format!("模型已下载，但自动预热失败：{error}"))?;
-        status = detect_setup_status(&endpoint).await?;
+        ensure_pull_not_cancelled(&registration.cancellation, &on_event, &request_id)?;
+        let prewarm = crate::research_runtime::prewarm_translation_endpoint(&endpoint);
+        tokio::select! {
+            _ = registration.cancellation.cancelled() => {
+                send_pull_cancelled(&on_event, &request_id)?;
+                return Err("模型下载已取消".to_string());
+            }
+            result = prewarm => {
+                result.map_err(|error| format!("模型已下载，但自动预热失败：{error}"))?;
+            }
+        }
+        ensure_pull_not_cancelled(&registration.cancellation, &on_event, &request_id)?;
+        let detect_status = detect_setup_status(&endpoint);
+        status = tokio::select! {
+            _ = registration.cancellation.cancelled() => {
+                send_pull_cancelled(&on_event, &request_id)?;
+                return Err("模型下载已取消".to_string());
+            }
+            status = detect_status => status?,
+        };
     }
+    ensure_pull_not_cancelled(&registration.cancellation, &on_event, &request_id)?;
     Ok(status)
 }
 
@@ -709,6 +836,8 @@ pub fn ollama_cancel_model_pull(request_id: String) -> Result<bool, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    static PULL_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
     fn local_host_detection_rejects_remote_management() {
@@ -808,6 +937,7 @@ mod tests {
 
     #[test]
     fn cancellation_before_registration_is_consumed_once() {
+        let _test_guard = PULL_TEST_LOCK.lock().unwrap();
         let request_id = format!("pull-before-register-{}", std::process::id());
         assert!(!ollama_cancel_model_pull(request_id.clone()).unwrap());
         let registration = register_pull(&request_id).unwrap();
@@ -817,5 +947,82 @@ mod tests {
             .lock()
             .unwrap()
             .contains_key(&request_id));
+    }
+
+    #[test]
+    fn another_request_cannot_start_while_unified_model_pull_is_active() {
+        let _test_guard = PULL_TEST_LOCK.lock().unwrap();
+        let first_request_id = format!("pull-active-first-{}", std::process::id());
+        let second_request_id = format!("pull-active-second-{}", std::process::id());
+        let first_registration = register_pull(&first_request_id).unwrap();
+
+        let error = register_pull(&second_request_id)
+            .err()
+            .expect("a second active unified-model pull must be rejected");
+        assert!(error.contains("已有模型下载正在进行"));
+        assert!(error.contains(&first_request_id));
+
+        drop(first_registration);
+        let second_registration = register_pull(&second_request_id).unwrap();
+        drop(second_registration);
+    }
+    #[test]
+    fn cancellation_notification_is_retained_before_waiter_registration() {
+        let cancellation = PullCancellation::default();
+        cancellation.cancel();
+
+        tauri::async_runtime::block_on(async {
+            tokio::time::timeout(Duration::from_secs(1), cancellation.notify.notified())
+                .await
+                .expect("notify_one should retain a cancellation permit");
+            tokio::time::timeout(Duration::from_secs(1), cancellation.cancelled())
+                .await
+                .expect("the atomic cancellation state should remain observable");
+        });
+        assert!(cancellation.is_cancelled());
+    }
+
+    #[test]
+    fn local_service_spawn_policy_is_explicit_per_platform() {
+        assert!(can_spawn_local_ollama_service("windows"));
+        assert!(can_spawn_local_ollama_service("macos"));
+        assert!(!can_spawn_local_ollama_service("linux"));
+        assert!(!can_spawn_local_ollama_service("unknown"));
+
+        let guidance = local_service_start_guidance("linux");
+        assert!(guidance.contains("systemctl start ollama"));
+        assert!(guidance.contains("ollama serve"));
+    }
+
+    #[test]
+    fn activation_respects_the_saved_backend_switch() {
+        assert!(ensure_activation_enabled(true).is_ok());
+
+        let error = ensure_activation_enabled(false).unwrap_err();
+        assert!(error.contains("已关闭"));
+        assert!(error.contains("启用并保存"));
+    }
+
+    #[test]
+    fn activation_requires_the_unified_model_to_be_installed() {
+        let mut status = OllamaSetupStatus {
+            installed: true,
+            executable_path: String::new(),
+            client_version: String::new(),
+            running: true,
+            server_version: String::new(),
+            model: UNIFIED_OLLAMA_MODEL.to_string(),
+            model_installed: false,
+            model_running: false,
+            manageable: true,
+            message: String::new(),
+        };
+
+        let error = ensure_model_installed_for_activation(&status).unwrap_err();
+        assert!(error.contains(UNIFIED_OLLAMA_MODEL));
+        assert!(error.contains("尚未安装"));
+
+        status.model_installed = true;
+        assert!(ensure_model_installed_for_activation(&status).is_ok());
     }
 }

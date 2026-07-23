@@ -388,6 +388,8 @@ export default function SettingsPanel({ platform = desktopPlatform }) {
                         <OllamaOnboardingCard
                             platform={platform}
                             onStatusChange={handleOllamaSetupStatus}
+                            autoMonitor
+                            autoStartService
                         />
                         <SettingRow
                             label='启用本地 Ollama'

@@ -9,7 +9,7 @@
     --main-text: #20232b;
     --main-muted: #777b87;
     --main-border: #e5e3df;
-    --main-danger: #cc4d55;
+    --main-danger: #b83d47;
     --app-rail-width: 92px;
     --app-context-sidebar-width: 274px;
     position: fixed;
@@ -61,7 +61,7 @@
 .main-shell textarea:focus-visible,
 .main-shell summary:focus-visible,
 .main-shell a:focus-visible {
-    outline: 2px solid rgba(119, 101, 232, 0.5);
+    outline: 2px solid var(--main-accent-strong);
     outline-offset: 2px;
 }
 
@@ -833,6 +833,130 @@
     color: #625b7a;
 }
 
+.ollama-first-run {
+    position: fixed;
+    z-index: 1000;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+}
+
+.ollama-first-run__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(20, 25, 33, 0.58);
+    backdrop-filter: blur(8px);
+}
+
+.ollama-first-run__panel {
+    position: relative;
+    width: min(720px, calc(100vw - 48px));
+    max-height: calc(100vh - 48px);
+    overflow: auto;
+    padding: 28px;
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    border-radius: 22px;
+    background: var(--main-surface);
+    box-shadow: 0 28px 80px rgba(17, 20, 28, 0.3);
+}
+
+.ollama-first-run__panel:focus {
+    outline: none;
+}
+.ollama-first-run__panel > header {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.ollama-first-run__icon {
+    width: 48px;
+    height: 48px;
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    border-radius: 15px;
+    background: var(--main-accent-soft);
+    color: var(--main-accent-strong);
+}
+
+.ollama-first-run__icon svg {
+    width: 26px;
+    height: 26px;
+}
+
+.ollama-first-run__panel h1 {
+    margin: 2px 0 5px;
+    font-size: 24px;
+    line-height: 1.25;
+}
+
+.ollama-first-run__panel header p {
+    max-width: 560px;
+    margin: 0;
+    color: var(--main-muted);
+    font-size: 14px;
+}
+
+.ollama-first-run__eyebrow {
+    color: var(--main-accent-strong);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+}
+
+.ollama-first-run__panel .ollama-onboarding {
+    margin-bottom: 0;
+    padding: 18px;
+}
+
+.ollama-first-run__ready {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 18px;
+    border: 1px solid #cce8d7;
+    border-radius: 14px;
+    background: #f3fbf6;
+    color: #256f4b;
+}
+
+.ollama-first-run__ready > svg {
+    width: 24px;
+    height: 24px;
+    flex: 0 0 auto;
+}
+
+.ollama-first-run__ready > div {
+    display: flex;
+    flex-direction: column;
+}
+
+.ollama-first-run__ready span {
+    color: #517363;
+    font-size: 12px;
+}
+
+.ollama-first-run__panel > footer {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 18px;
+}
+
+.ollama-first-run__skip {
+    min-height: 38px;
+    padding: 0 12px;
+    border: 0;
+    background: transparent;
+    color: var(--main-muted);
+    font-size: 12px;
+}
+
+.ollama-first-run__skip:hover {
+    color: var(--main-text);
+}
 .ollama-onboarding {
     display: grid;
     gap: 12px;
@@ -871,7 +995,7 @@
 .ollama-onboarding__actions > span,
 .ollama-onboarding__confirmation span {
     color: var(--main-muted);
-    font-size: 10px;
+    font-size: 12px;
     line-height: 1.55;
 }
 
@@ -886,7 +1010,7 @@
     border-radius: 8px;
     background: #fff;
     color: #5c5673;
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 620;
 }
 
@@ -902,7 +1026,7 @@
 
 .ollama-onboarding button.is-primary {
     border-color: var(--main-accent);
-    background: var(--main-accent);
+    background: var(--main-accent-strong);
     color: #fff;
 }
 
@@ -972,7 +1096,7 @@
 .ollama-onboarding__steps strong {
     overflow: hidden;
     color: #575361;
-    font-size: 10px;
+    font-size: 12px;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -980,8 +1104,8 @@
 .ollama-onboarding__steps small {
     overflow: hidden;
     margin-top: 2px;
-    color: #9995a3;
-    font-size: 9px;
+    color: #716c7a;
+    font-size: 11px;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -1009,7 +1133,7 @@
     align-items: center;
     gap: 6px;
     color: #6b667a;
-    font-size: 10px;
+    font-size: 12px;
 }
 
 .ollama-onboarding__status > svg {
@@ -1032,7 +1156,7 @@
 .ollama-onboarding__progress strong,
 .ollama-onboarding__progress small {
     color: #625d73;
-    font-size: 10px;
+    font-size: 12px;
 }
 
 .ollama-onboarding__progress progress {
@@ -1051,7 +1175,7 @@
 
 .ollama-onboarding__progress progress::-webkit-progress-value {
     border-radius: 999px;
-    background: var(--main-accent);
+    background: var(--main-accent-strong);
 }
 
 .ollama-onboarding__progress button {
@@ -1077,7 +1201,7 @@
 
 .ollama-onboarding__confirmation strong {
     color: #3f3a50;
-    font-size: 10px;
+    font-size: 12px;
 }
 
 .ollama-onboarding__actions {
@@ -1096,14 +1220,14 @@
     border-radius: 8px;
     background: #fff7f7;
     color: var(--main-danger);
-    font-size: 10px;
+    font-size: 12px;
     line-height: 1.55;
 }
 
 .settings-model-list-error {
     margin: 8px 0 0;
     color: var(--main-danger);
-    font-size: 10px;
+    font-size: 12px;
 }
 
 .setting-row__control > input,
@@ -1213,7 +1337,7 @@
     transform: translateX(18px);
 }
 .settings-toggle > input:focus-visible + span {
-    outline: 2px solid rgba(119, 101, 232, 0.5);
+    outline: 2px solid var(--main-accent-strong);
     outline-offset: 2px;
 }
 .settings-toggle > em {

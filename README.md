@@ -10,7 +10,7 @@
     · <a href="./docs/ACADEMIC_WORKFLOW.md">学术阅读指南</a>
   </p>
   <p>
-    <img alt="Windows 10/11 x64" src="https://img.shields.io/badge/Windows-10%2F11%20x64-2563eb?logo=windows">
+    <img alt="Windows 10 22H2+/11 x64" src="https://img.shields.io/badge/Windows-10%2022H2%2B%20%7C%2011%20x64-2563eb?logo=windows">
     <img alt="Local AI" src="https://img.shields.io/badge/AI-Local%20Ollama-7c3aed">
     <img alt="License GPL-3.0" src="https://img.shields.io/badge/License-GPL--3.0-16a34a">
   </p>
@@ -19,6 +19,19 @@
 ![小允论文阅读器：本地概要、关键术语与 PDF 阅读](./docs/screenshots/academic-reader.png)
 
 > 截图中的论文、作者、数据与译文均为专门制作的合成演示内容，不代表真实研究结论。
+
+## Windows：四步完成第一次翻译
+
+Ollama 是一个**独立安装、在后台运行的本地 AI 程序**。小允翻译负责调用它完成翻译、OCR 和文献分析；两者都在本机运行，**不需要账号或 API Key**。
+
+开始前请确认：Windows 10 22H2 或 Windows 11 x64、16 GB 以上内存，以及至少 12 GB 可用磁盘空间（推荐 15 GB）。
+
+1. 从 [Releases](https://github.com/Xiaoyun-0922/xiaoyun-translator/releases/latest) 下载 `xiaoyun-translator_*_x64-setup.exe` 并安装。若 SmartScreen 拦截，请先核对下载来源和 Release 中的 SHA-256，再选择“更多信息 → 仍要运行”。
+2. 首次打开小允翻译会出现“先接入本地 Ollama”。点击向导中的主按钮，完成 [Ollama Windows 官方安装](https://ollama.com/download/windows)；安装程序通常会让 Ollama 在后台运行。
+3. 返回小允翻译。向导会自动检测 Ollama 并启动本地服务；你只需确认“下载 Gemma 4 E4B（约 6.1 GB）”。等待“本地 AI 已准备好”，再点击“开始使用”。
+4. 打开 Windows 记事本，输入并选中 `Hello, world.`，按 `Ctrl+D`；出现中文翻译浮窗即表示接入成功。
+
+第一次请求需要加载模型，可能比后续翻译慢。若你跳过了首次向导，或向导没有继续，请打开“设置 → Ollama”点击“重新检测”；再确认 Ollama 和小允翻译都仍在系统托盘运行，依次重启两者后重试。完整说明见[快速上手](./docs/GETTING_STARTED.md)和[Ollama 图形化排错](./docs/OLLAMA.md#新手图形化排错)。
 
 ## 为什么是小允翻译
 
@@ -52,7 +65,7 @@
 
 ## 平台与发布状态
 
-Windows 10/11 x64 仍是当前主要验证和 Release 发布平台。CI 另行构建 macOS Apple Silicon、macOS Intel 与 Linux x64 产物，但它们目前只作为 GitHub Actions workflow artifacts 提供，尚未在对应实体设备和桌面环境上完成端到端验证。
+Windows 10 22H2/11 x64 仍是当前主要验证和 Release 发布平台。CI 另行构建 macOS Apple Silicon、macOS Intel 与 Linux x64 产物，但它们目前只作为 GitHub Actions workflow artifacts 提供，尚未在对应实体设备和桌面环境上完成端到端验证。
 
 -   macOS 产物没有 Developer ID 签名且未公证；划词和截图还需要分别授予“辅助功能”和“屏幕录制”权限；
 -   Linux 产物未签名；Wayland 下的全局快捷键、划词和截图会受合成器与 portal 限制，X11 也尚未完成完整实机矩阵验证；
@@ -60,32 +73,14 @@ Windows 10/11 x64 仍是当前主要验证和 Release 发布平台。CI 另行�
 
 现有 Windows tag Release 流程保持独立，macOS/Linux workflow 不会把未签名产物发布到 Release。
 
-## 快速开始
-
-> [!IMPORTANT]
-> 当前正式下载入口仅验证 **Windows 10/11 x64**。安装包目前**未进行代码签名**，Windows SmartScreen 可能显示“未知发布者”。macOS/Linux 试验构建请先阅读上方平台状态。
-
-1. 从 [Releases](https://github.com/Xiaoyun-0922/xiaoyun-translator/releases/latest) 下载最新的 `xiaoyun-translator_*_x64-setup.exe`。
-2. 运行安装程序。若 SmartScreen 拦截，请先核对下载来源和 Release 中的 SHA-256，再选择“更多信息 → 仍要运行”。
-3. 打开“设置 → Ollama”，按首次接入向导：
-    - 打开 Ollama 官方下载页并完成安装；
-    - 启动本地服务；
-    - 确认下载 `gemma4:e4b-it-qat`（约 **6.1 GB**）。
-4. 模型显示“已就绪”后：
-    - 选中文字并按 `Ctrl+D`；
-    - 按 `Ctrl+E` 后框选截图；
-    - 或进入“论文库”导入文献。
-
-完整说明见[快速上手](./docs/GETTING_STARTED.md)、[跨平台试验构建说明](./docs/CROSS_PLATFORM.md)和[Ollama 接入指南](./docs/OLLAMA.md)。
-
 ## Windows Release 运行要求
 
 | 项目     | 最低可运行                       | 推荐体验                    |
 | -------- | -------------------------------- | --------------------------- |
-| 操作系统 | Windows 10/11 x64                | Windows 11 x64              |
+| 操作系统 | Windows 10 22H2 x64              | Windows 11 x64              |
 | 内存     | 16 GB                            | 24 GB 或以上                |
 | 显卡     | 可使用 CPU，但未作为流畅体验验证 | NVIDIA GPU，8 GB 显存或以上 |
-| 磁盘     | 安装包之外至少预留 8 GB          | 预留 12 GB 或以上           |
+| 磁盘     | 安装包之外至少预留 12 GB         | 预留 15 GB 或以上           |
 | 本地模型 | `gemma4:e4b-it-qat`，约 6.1 GB   | 同左，保持单模型运行        |
 
 8 GB 显存可以运行当前 QAT 模型，但长上下文、扫描页 OCR 与大型 PDF 会更紧张。软件采用单一 Gemma 4 runner，避免同时预热多个模型浪费显存。
