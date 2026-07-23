@@ -10,7 +10,7 @@ static TEMP_IMAGE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 fn app_cache_dir(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
     let mut path = cache_dir().ok_or_else(|| "Get Cache Dir Failed".to_string())?;
-    path.push(&app_handle.config().tauri.bundle.identifier);
+    path.push(&app_handle.config().identifier);
     Ok(path)
 }
 
@@ -18,6 +18,19 @@ fn shared_screenshot_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, Stri
     let mut path = app_cache_dir(app_handle)?;
     path.push("pot_screenshot_cut.png");
     Ok(path)
+}
+
+#[cfg(any(test, target_os = "macos"))]
+fn macos_ocr_resource_name(arch: &str) -> Result<String, String> {
+    match arch {
+        "aarch64" | "x86_64" => Ok(format!("resources/ocr-{arch}-apple-darwin")),
+        _ => Err(format!("macOS OCR 暂不支持 {arch} 架构")),
+    }
+}
+
+#[cfg(any(test, target_os = "macos"))]
+fn missing_macos_ocr_resource_error(resource_name: &str) -> String {
+    format!("macOS OCR 组件缺失（{resource_name}），请重新安装完整应用；可继续使用 Gemma OCR")
 }
 
 struct TemporaryOcrImage {
@@ -165,28 +178,58 @@ fn recognize_image(
     image_path: &Path,
     lang: &str,
 ) -> Result<String, String> {
-    let arch = std::env::consts::ARCH;
-    let bin_path = app_handle
-        .path_resolver()
-        .resolve_resource(format!("resources/ocr-{arch}-apple-darwin"))
-        .ok_or_else(|| "Failed to resolve ocr binary".to_string())?;
+    use std::os::unix::fs::PermissionsExt;
+    use tauri::path::BaseDirectory;
+    use tauri::Manager;
 
-    std::process::Command::new("chmod")
-        .arg("+x")
-        .arg(&bin_path)
-        .output()
-        .map_err(|error| error.to_string())?;
+    let resource_name = macos_ocr_resource_name(std::env::consts::ARCH)?;
+    let bundled_binary = app_handle
+        .path()
+        .resolve(&resource_name, BaseDirectory::Resource)
+        .map_err(|error| format!("无法解析 macOS OCR 组件：{error}"))?;
+    if !bundled_binary.is_file() {
+        return Err(missing_macos_ocr_resource_error(&resource_name));
+    }
 
-    let output = std::process::Command::new(bin_path)
+    // 签名后的 .app 资源不应在运行时原地 chmod。复制到应用缓存并赋予仅当前用户
+    // 可执行权限，既不修改应用包，也能兼容从只读卷启动的场景。
+    let executable_name = bundled_binary
+        .file_name()
+        .ok_or_else(|| missing_macos_ocr_resource_error(&resource_name))?;
+    let executable_path = app_cache_dir(app_handle)?.join(format!(
+        "{}-{}-{}",
+        executable_name.to_string_lossy(),
+        std::process::id(),
+        TEMP_IMAGE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::create_dir_all(
+        executable_path
+            .parent()
+            .ok_or_else(|| "无法定位 macOS OCR 缓存目录".to_string())?,
+    )
+    .map_err(|error| format!("创建 macOS OCR 缓存目录失败：{error}"))?;
+    fs::copy(&bundled_binary, &executable_path)
+        .map_err(|error| format!("准备 macOS OCR 组件失败：{error}"))?;
+    fs::set_permissions(&executable_path, fs::Permissions::from_mode(0o700))
+        .map_err(|error| format!("设置 macOS OCR 组件权限失败：{error}"))?;
+
+    let output = std::process::Command::new(&executable_path)
         .arg(image_path)
         .arg(lang)
         .output()
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| format!("启动 macOS OCR 组件失败：{error}"));
+    let _ = fs::remove_file(&executable_path);
+    let output = output?;
 
     if output.status.success() {
-        Ok(String::from_utf8(output.stdout).unwrap_or_default())
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     } else {
-        Err(String::from_utf8(output.stderr).unwrap_or_default())
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(if detail.is_empty() {
+            format!("macOS OCR 组件异常退出：{}", output.status)
+        } else {
+            format!("macOS OCR 失败：{detail}")
+        })
     }
 }
 
@@ -204,12 +247,10 @@ fn recognize_image(
 
     let output = match command.output() {
         Ok(output) => output,
-        Err(error) => {
-            if error.to_string().contains("os error 2") {
-                return Err("Tesseract not installed!".to_string());
-            }
-            return Err(error.to_string());
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Err("未找到 Tesseract，请先安装 tesseract-ocr".to_string());
         }
+        Err(error) => return Err(format!("启动 Tesseract 失败：{error}")),
     };
     if output.status.success() {
         Ok(String::from_utf8(output.stdout).unwrap_or_default())
@@ -256,5 +297,28 @@ mod tests {
         assert!(!second_path.exists());
         fs::remove_dir(directory)?;
         Ok(())
+    }
+
+    #[test]
+    fn macos_ocr_resource_path_matches_bundled_architectures() {
+        assert_eq!(
+            macos_ocr_resource_name("aarch64").unwrap(),
+            "resources/ocr-aarch64-apple-darwin"
+        );
+        assert_eq!(
+            macos_ocr_resource_name("x86_64").unwrap(),
+            "resources/ocr-x86_64-apple-darwin"
+        );
+        assert!(macos_ocr_resource_name("riscv64")
+            .unwrap_err()
+            .contains("riscv64"));
+    }
+
+    #[test]
+    fn missing_macos_ocr_resource_error_is_actionable() {
+        let error = missing_macos_ocr_resource_error("resources/ocr-aarch64-apple-darwin");
+        assert!(error.contains("组件缺失"));
+        assert!(error.contains("重新安装"));
+        assert!(error.contains("Gemma OCR"));
     }
 }

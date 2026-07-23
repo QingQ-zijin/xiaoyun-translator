@@ -7,6 +7,7 @@
     windows_subsystem = "windows"
 )]
 
+#[cfg(target_os = "windows")]
 #[allow(dead_code)]
 #[path = "../../src/selected_text.rs"]
 mod selected_text;

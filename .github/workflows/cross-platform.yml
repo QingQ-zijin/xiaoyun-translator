@@ -1,0 +1,274 @@
+name: Cross-platform CI
+
+on:
+    workflow_dispatch:
+    pull_request:
+    push:
+        branches:
+            - main
+
+permissions:
+    contents: read
+
+concurrency:
+    group: cross-platform-${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+env:
+    CARGO_TERM_COLOR: always
+
+jobs:
+    macos:
+        name: macOS ${{ matrix.name }}
+        runs-on: ${{ matrix.runner }}
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - name: Apple Silicon
+                      runner: macos-15
+                      machine: arm64
+                      target: aarch64-apple-darwin
+                      artifact_arch: aarch64
+                    - name: Intel
+                      runner: macos-15-intel
+                      machine: x86_64
+                      target: x86_64-apple-darwin
+                      artifact_arch: x64
+
+        steps:
+            - name: Checkout source
+              uses: actions/checkout@v4
+
+            - name: Verify runner architecture
+              run: test "$(uname -m)" = "${{ matrix.machine }}"
+
+            - name: Set up pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  version: 10.18.1
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: '22'
+                  cache: pnpm
+
+            - name: Set up Rust
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  toolchain: stable
+                  targets: ${{ matrix.target }}
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@v2
+              with:
+                  workspaces: src-tauri
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Run frontend tests
+              run: pnpm test
+
+            - name: Run native Rust tests
+              run: cargo test --manifest-path src-tauri/Cargo.toml --all-targets
+
+            - name: Run native Rust clippy
+              run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets
+
+            - name: Build unsigned macOS bundles
+              run: pnpm tauri build --target "${{ matrix.target }}" --bundles app,dmg
+
+            - name: Prepare ASCII-named bundles and SHA-256 checksum
+              env:
+                  ARTIFACT_ARCH: ${{ matrix.artifact_arch }}
+                  TARGET: ${{ matrix.target }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  shopt -s nullglob
+
+                  version="$(node -p "require('./package.json').version")"
+                  bundle_root="src-tauri/target/${TARGET}/release/bundle"
+                  apps=("${bundle_root}"/macos/*.app)
+                  dmgs=("${bundle_root}"/dmg/*.dmg)
+
+                  if [[ ${#apps[@]} -ne 1 || ${#dmgs[@]} -ne 1 ]]; then
+                      echo "Expected exactly one .app and one .dmg bundle." >&2
+                      printf 'Found apps: %s\n' "${apps[*]:-none}" >&2
+                      printf 'Found dmgs: %s\n' "${dmgs[*]:-none}" >&2
+                      exit 1
+                  fi
+
+                  release_dir="release/macos-${ARTIFACT_ARCH}"
+                  mkdir -p "${release_dir}"
+                  app_archive="xiaoyun-translator_${version}_macos-${ARTIFACT_ARCH}.app.zip"
+                  dmg_name="xiaoyun-translator_${version}_macos-${ARTIFACT_ARCH}.dmg"
+                  checksum_name="checksums-macos-${ARTIFACT_ARCH}.txt"
+
+                  ditto -c -k --sequesterRsrc --keepParent "${apps[0]}" "${release_dir}/${app_archive}"
+                  cp "${dmgs[0]}" "${release_dir}/${dmg_name}"
+                  (
+                      cd "${release_dir}"
+                      shasum -a 256 "${app_archive}" "${dmg_name}" > "${checksum_name}"
+                  )
+
+            - name: Upload unsigned macOS workflow artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: xiaoyun-translator-macos-${{ matrix.artifact_arch }}
+                  path: release/macos-${{ matrix.artifact_arch }}/
+                  if-no-files-found: error
+                  retention-days: 14
+
+    linux:
+        name: Linux x64
+        runs-on: ubuntu-22.04
+
+        steps:
+            - name: Checkout source
+              uses: actions/checkout@v4
+
+            - name: Verify x64 runner
+              run: test "$(uname -m)" = "x86_64"
+
+            - name: Install Tauri and application dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y \
+                      libwebkit2gtk-4.1-dev \
+                      libappindicator3-dev \
+                      librsvg2-dev \
+                      patchelf \
+                      xdg-utils \
+                      libxcb1 \
+                      libxrandr2 \
+                      libdbus-1-3 \
+                      tesseract-ocr \
+                      espeak-ng
+
+            - name: Set up pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  version: 10.18.1
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: '22'
+                  cache: pnpm
+
+            - name: Set up Rust
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  toolchain: stable
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@v2
+              with:
+                  workspaces: src-tauri
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Run frontend tests
+              run: pnpm test
+
+            - name: Run native Rust tests
+              run: cargo test --manifest-path src-tauri/Cargo.toml --all-targets
+
+            - name: Run native Rust clippy
+              run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets
+
+            - name: Build unsigned Linux bundles
+              run: pnpm tauri build --bundles deb,appimage
+
+            - name: Prepare ASCII-named bundles and SHA-256 checksum
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  shopt -s nullglob
+
+                  version="$(node -p "require('./package.json').version")"
+                  debs=(src-tauri/target/release/bundle/deb/*.deb)
+                  appimages=(src-tauri/target/release/bundle/appimage/*.AppImage)
+
+                  if [[ ${#debs[@]} -ne 1 || ${#appimages[@]} -ne 1 ]]; then
+                      echo "Expected exactly one .deb and one .AppImage bundle." >&2
+                      printf 'Found debs: %s\n' "${debs[*]:-none}" >&2
+                      printf 'Found AppImages: %s\n' "${appimages[*]:-none}" >&2
+                      exit 1
+                  fi
+
+                  release_dir="release/linux-x64"
+                  mkdir -p "${release_dir}"
+                  deb_name="xiaoyun-translator_${version}_linux-x64.deb"
+                  appimage_name="xiaoyun-translator_${version}_linux-x64.AppImage"
+                  checksum_name="checksums-linux-x64.txt"
+
+                  install -m 0644 "${debs[0]}" "${release_dir}/${deb_name}"
+                  install -m 0755 "${appimages[0]}" "${release_dir}/${appimage_name}"
+                  (
+                      cd "${release_dir}"
+                      sha256sum "${deb_name}" "${appimage_name}" > "${checksum_name}"
+                  )
+
+            - name: Upload unsigned Linux workflow artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: xiaoyun-translator-linux-x64
+                  path: release/linux-x64/
+                  if-no-files-found: error
+                  retention-days: 14
+
+    windows:
+        name: Windows x64 regression
+        runs-on: windows-latest
+
+        steps:
+            - name: Checkout source
+              uses: actions/checkout@v4
+
+            - name: Verify x64 runner
+              shell: pwsh
+              run: |
+                  if ($env:PROCESSOR_ARCHITECTURE -ne 'AMD64') {
+                      throw "Expected an x64 runner, got $env:PROCESSOR_ARCHITECTURE."
+                  }
+
+            - name: Set up pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  version: 10.18.1
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: '22'
+                  cache: pnpm
+
+            - name: Set up Rust
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  toolchain: stable
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@v2
+              with:
+                  workspaces: src-tauri
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Run frontend tests
+              run: pnpm test
+
+            - name: Run native Rust tests
+              run: cargo test --manifest-path src-tauri/Cargo.toml --all-targets
+
+            - name: Run native Rust clippy
+              run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets
+
+            - name: Build Windows installer
+              run: pnpm tauri build

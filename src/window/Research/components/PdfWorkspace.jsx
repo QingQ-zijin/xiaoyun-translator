@@ -903,7 +903,7 @@ const PdfWorkspace = forwardRef(function PdfWorkspace(
         const root = scrollRef.current;
         if (!root) return undefined;
         const handleWheel = (event) => {
-            if (!event.ctrlKey) return;
+            if (!event.ctrlKey && !event.metaKey) return;
             event.preventDefault();
             cancelPendingSelection(true);
             const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 320 : 1;

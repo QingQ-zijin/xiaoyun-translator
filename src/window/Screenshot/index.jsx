@@ -4,7 +4,10 @@ import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { currentMonitor } from '@tauri-apps/api/window';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { emit } from '@tauri-apps/api/event';
-const appWindow = getCurrentWebviewWindow()
+import { formatShortcutForPlatform } from '../../utils/platform';
+
+const appWindow = getCurrentWebviewWindow();
+const SCREENSHOT_TRANSLATE_SHORTCUT = formatShortcutForPlatform('CommandOrControl+E');
 
 export default function Screenshot() {
     const [imgurl, setImgurl] = useState('');
@@ -89,7 +92,7 @@ export default function Screenshot() {
                     setIsMoved(false);
                     const imgWidth = imgRef.current?.naturalWidth ?? 0;
                     if (imgWidth <= 0) {
-                        setError('截图尚未准备完成，请重新按 Ctrl+E。');
+                        setError(`截图尚未准备完成，请重新按 ${SCREENSHOT_TRANSLATE_SHORTCUT}。`);
                         await appWindow.show().catch(() => undefined);
                         return;
                     }

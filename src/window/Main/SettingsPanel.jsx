@@ -25,6 +25,7 @@ import {
 import OllamaOnboardingCard from './OllamaOnboardingCard';
 import OllamaModelSelect from './OllamaModelSelect';
 import { UNIFIED_OLLAMA_MODEL } from '../../domains/ollama/runtime';
+import { desktopPlatform, formatShortcutForPlatform, getPlatformPresentation } from '../../utils/platform';
 
 const LANGUAGE_OPTIONS = [
     ['auto', '自动检测'],
@@ -108,12 +109,12 @@ function Toggle({ checked, onChange, label }) {
     );
 }
 
-function HotkeyInput({ value, onChange, ariaLabel }) {
+function HotkeyInput({ value, onChange, ariaLabel, platform }) {
     return (
         <input
             className='settings-hotkey-input'
             aria-label={ariaLabel}
-            value={value}
+            value={formatShortcutForPlatform(value, platform)}
             onChange={(event) => onChange(event.target.value)}
             onBlur={(event) => {
                 const normalized = normalizeHotkey(event.target.value);
@@ -134,7 +135,8 @@ function HotkeyInput({ value, onChange, ariaLabel }) {
     );
 }
 
-export default function SettingsPanel() {
+export default function SettingsPanel({ platform = desktopPlatform }) {
+    const platformPresentation = getPlatformPresentation(platform);
     const [settings, setSettings] = useState(() => mergeSettingsV2(DEFAULT_SETTINGS_V2));
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -230,7 +232,18 @@ export default function SettingsPanel() {
             return;
         }
         if (!next.hotkeys.selectionTranslate || !next.hotkeys.screenshotTranslate) {
-            setNotice({ type: 'error', text: 'Ctrl+D 与 Ctrl+E 都必须是包含修饰键的有效组合。' });
+            const selectionShortcut = formatShortcutForPlatform(
+                DEFAULT_SETTINGS_V2.hotkeys.selectionTranslate,
+                platform
+            );
+            const screenshotShortcut = formatShortcutForPlatform(
+                DEFAULT_SETTINGS_V2.hotkeys.screenshotTranslate,
+                platform
+            );
+            setNotice({
+                type: 'error',
+                text: `${selectionShortcut} 与 ${screenshotShortcut} 都必须是包含修饰键的有效组合。`,
+            });
             return;
         }
 
@@ -300,6 +313,7 @@ export default function SettingsPanel() {
     }
 
     const ollamaHost = settings.ollama.translation.requestPath;
+    const selectionShortcut = formatShortcutForPlatform(settings.hotkeys.selectionTranslate, platform);
     return (
         <section className='main-page main-page--settings'>
             <header className='main-page__header main-page__header--settings'>
@@ -371,10 +385,13 @@ export default function SettingsPanel() {
                         description='开启后立即预热翻译模型；关闭会取消生成并释放本地模型占用。'
                         active={activeSection === 'ollama'}
                     >
-                        <OllamaOnboardingCard onStatusChange={handleOllamaSetupStatus} />
+                        <OllamaOnboardingCard
+                            platform={platform}
+                            onStatusChange={handleOllamaSetupStatus}
+                        />
                         <SettingRow
                             label='启用本地 Ollama'
-                            hint='Ctrl+D、论文翻译、OCR 与 AI 共用此开关'
+                            hint={`${selectionShortcut}、论文翻译、OCR 与 AI 共用此开关`}
                         >
                             <Toggle
                                 checked={settings.ollama.enabled}
@@ -476,22 +493,30 @@ export default function SettingsPanel() {
                     >
                         <SettingRow
                             label='划词翻译'
-                            hint='默认 Ctrl+D'
+                            hint={`默认 ${formatShortcutForPlatform(
+                                DEFAULT_SETTINGS_V2.hotkeys.selectionTranslate,
+                                platform
+                            )}`}
                         >
                             <HotkeyInput
                                 ariaLabel='划词翻译快捷键'
                                 value={settings.hotkeys.selectionTranslate}
                                 onChange={(value) => setHotkey('selectionTranslate', value)}
+                                platform={platform}
                             />
                         </SettingRow>
                         <SettingRow
                             label='截图翻译'
-                            hint='默认 Ctrl+E'
+                            hint={`默认 ${formatShortcutForPlatform(
+                                DEFAULT_SETTINGS_V2.hotkeys.screenshotTranslate,
+                                platform
+                            )}`}
                         >
                             <HotkeyInput
                                 ariaLabel='截图翻译快捷键'
                                 value={settings.hotkeys.screenshotTranslate}
                                 onChange={(value) => setHotkey('screenshotTranslate', value)}
+                                platform={platform}
                             />
                         </SettingRow>
                     </SettingSection>
@@ -499,8 +524,8 @@ export default function SettingsPanel() {
                     <SettingSection
                         id='speech'
                         Icon={PiSpeakerHigh}
-                        title='Windows 本地朗读'
-                        description='使用系统 SpeechSynthesizer，不再连接 Lingva 或其他网络语音。'
+                        title={platformPresentation.speechTitle}
+                        description={platformPresentation.speechDescription}
                         active={activeSection === 'speech'}
                     >
                         <SettingRow
@@ -530,7 +555,7 @@ export default function SettingsPanel() {
                                 <input
                                     value={settings.speech.voice}
                                     onChange={(event) => setSpeech('voice', event.target.value)}
-                                    placeholder='自动选择 Windows 声音'
+                                    placeholder={platformPresentation.speechVoicePlaceholder}
                                 />
                             )}
                         </SettingRow>
@@ -554,7 +579,7 @@ export default function SettingsPanel() {
                         id='window'
                         Icon={PiMonitor}
                         title='快速翻译窗口'
-                        description='控制 Ctrl+D 弹窗的位置、失焦隐藏与默认置顶状态。'
+                        description={`控制 ${selectionShortcut} 弹窗的位置、失焦隐藏与默认置顶状态。`}
                         active={activeSection === 'window'}
                     >
                         <SettingRow label='弹出位置'>

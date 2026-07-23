@@ -144,48 +144,79 @@ fn executable_version(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-fn path_lookup_command() -> (&'static str, &'static str) {
-    if cfg!(windows) {
-        ("where.exe", "ollama")
-    } else {
-        ("which", "ollama")
-    }
-}
-
-fn executable_candidates() -> Vec<PathBuf> {
+fn platform_executable_candidates(
+    platform: &str,
+    local_app_data: Option<&Path>,
+    home: Option<&Path>,
+    path_directories: impl IntoIterator<Item = PathBuf>,
+) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
-    if cfg!(windows) {
-        if let Some(local_app_data) = env::var_os("LOCALAPPDATA") {
+    if platform == "windows" {
+        if let Some(local_app_data) = local_app_data {
             candidates.push(
-                PathBuf::from(&local_app_data)
+                local_app_data
                     .join("Programs")
                     .join("Ollama")
                     .join("ollama.exe"),
             );
+            candidates.push(local_app_data.join("Ollama").join("ollama.exe"));
+        }
+    } else if platform == "macos" {
+        candidates.extend([
+            PathBuf::from("/Applications/Ollama.app/Contents/Resources/ollama"),
+            PathBuf::from("/usr/local/bin/ollama"),
+            PathBuf::from("/opt/homebrew/bin/ollama"),
+            PathBuf::from("/usr/bin/ollama"),
+        ]);
+        if let Some(home) = home {
             candidates.push(
-                PathBuf::from(local_app_data)
-                    .join("Ollama")
-                    .join("ollama.exe"),
+                home.join("Applications")
+                    .join("Ollama.app")
+                    .join("Contents")
+                    .join("Resources")
+                    .join("ollama"),
             );
         }
     } else {
         candidates.extend([
             PathBuf::from("/usr/local/bin/ollama"),
             PathBuf::from("/usr/bin/ollama"),
+            PathBuf::from("/bin/ollama"),
         ]);
+        if let Some(home) = home {
+            candidates.push(home.join(".local").join("bin").join("ollama"));
+        }
     }
 
-    let (finder, argument) = path_lookup_command();
-    if let Ok(output) = Command::new(finder).arg(argument).output() {
-        candidates.extend(
-            output_text(&output)
-                .lines()
-                .map(str::trim)
-                .filter(|line| !line.is_empty())
-                .map(PathBuf::from),
-        );
-    }
+    let executable_name = if platform == "windows" {
+        "ollama.exe"
+    } else {
+        "ollama"
+    };
+    candidates.extend(
+        path_directories
+            .into_iter()
+            .map(|directory| directory.join(executable_name)),
+    );
+    let mut seen = HashSet::new();
+    candidates.retain(|candidate| seen.insert(candidate.clone()));
     candidates
+}
+
+fn executable_candidates() -> Vec<PathBuf> {
+    let local_app_data = env::var_os("LOCALAPPDATA").map(PathBuf::from);
+    let home = env::var_os("HOME")
+        .map(PathBuf::from)
+        .or_else(dirs::home_dir);
+    let path_directories = env::var_os("PATH")
+        .map(|path| env::split_paths(&path).collect::<Vec<_>>())
+        .unwrap_or_default();
+    platform_executable_candidates(
+        env::consts::OS,
+        local_app_data.as_deref(),
+        home.as_deref(),
+        path_directories,
+    )
 }
 
 fn discover_executable() -> Option<OllamaExecutable> {
@@ -672,6 +703,37 @@ mod tests {
         assert!(is_local_host("http://localhost:11434"));
         assert!(is_local_host("http://[::1]:11434"));
         assert!(!is_local_host("https://ollama.example.com"));
+    }
+
+    #[test]
+    fn platform_candidates_cover_gui_installs_and_path_without_duplicates() {
+        let home = Path::new("/Users/researcher");
+        let macos = platform_executable_candidates(
+            "macos",
+            None,
+            Some(home),
+            [PathBuf::from("/usr/local/bin")],
+        );
+        assert!(macos.contains(&PathBuf::from(
+            "/Applications/Ollama.app/Contents/Resources/ollama"
+        )));
+        assert!(macos.contains(&home.join("Applications/Ollama.app/Contents/Resources/ollama")));
+        assert_eq!(
+            macos
+                .iter()
+                .filter(|candidate| candidate.as_path() == Path::new("/usr/local/bin/ollama"))
+                .count(),
+            1
+        );
+
+        let linux = platform_executable_candidates(
+            "linux",
+            None,
+            Some(Path::new("/home/researcher")),
+            [PathBuf::from("/custom/bin")],
+        );
+        assert!(linux.contains(&PathBuf::from("/home/researcher/.local/bin/ollama")));
+        assert!(linux.contains(&PathBuf::from("/custom/bin/ollama")));
     }
 
     #[test]

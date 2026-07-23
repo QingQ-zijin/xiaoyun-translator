@@ -1,5 +1,8 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(
+    all(not(debug_assertions), target_os = "windows"),
+    windows_subsystem = "windows"
+)]
 #![deny(clippy::large_stack_arrays)]
 
 mod cmd;
@@ -12,6 +15,7 @@ mod research_lexicon;
 mod research_runtime;
 mod screenshot;
 mod selected_text;
+mod system_ocr;
 mod system_tts;
 mod tray;
 mod vision_runtime;
@@ -32,6 +36,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Mutex,
 };
+use system_ocr::{system_ocr, system_ocr_base64};
 use system_tts::{list_system_voices, system_tts};
 use tauri::Manager;
 use tray::*;
@@ -138,6 +143,8 @@ fn main() {
             copy_img,
             system_tts,
             list_system_voices,
+            system_ocr,
+            system_ocr_base64,
             dismiss_translate_window,
             translate_window_ready,
             open_main_window,
@@ -227,5 +234,42 @@ mod lifecycle_tests {
         for label in ["translate", "screenshot", "daemon"] {
             assert!(!should_exit_for_window(label));
         }
+    }
+}
+
+#[cfg(test)]
+mod platform_config_tests {
+    use serde_json::Value;
+
+    fn platform_config(source: &str) -> Value {
+        let config: Value = serde_json::from_str(source).expect("平台配置必须是有效 JSON");
+        assert!(
+            config.get("tauri").is_none(),
+            "Tauri 2 平台配置不得保留 v1 的 tauri 包装层"
+        );
+        config
+    }
+
+    #[test]
+    fn macos_config_overrides_windows_bundle_target_and_identifier() {
+        let config = platform_config(include_str!("../tauri.macos.conf.json"));
+        assert_eq!(config["identifier"], "io.github.xiaoyun0922.translator");
+        assert_eq!(
+            config["bundle"]["targets"],
+            serde_json::json!(["app", "dmg"])
+        );
+        assert!(config["bundle"]["resources"]
+            .as_array()
+            .is_some_and(|resources| !resources.is_empty()));
+    }
+
+    #[test]
+    fn linux_config_overrides_windows_bundle_target_and_identifier() {
+        let config = platform_config(include_str!("../tauri.linux.conf.json"));
+        assert_eq!(config["identifier"], "io.github.xiaoyun0922.translator");
+        assert_eq!(
+            config["bundle"]["targets"],
+            serde_json::json!(["deb", "appimage"])
+        );
     }
 }

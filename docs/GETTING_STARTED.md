@@ -1,22 +1,24 @@
 # 小允翻译快速上手
 
-这份指南适用于首次安装小允翻译、接入 Ollama，并开始使用 Ctrl+D、Ctrl+E 和文献阅读器的用户。
+这份指南适用于首次安装小允翻译、接入 Ollama，并开始使用划词、截图和文献阅读器的用户。Windows/Linux 默认快捷键为 `Ctrl+D`、`Ctrl+E`，macOS 为 `Command+D`、`Command+E`。
 
-> 当前仅验证 Windows 10/11 x64。安装包尚未签名，请只从本仓库 Releases 下载。
+> Windows 10/11 x64 是当前主要验证和 Release 发布平台。macOS Apple Silicon/Intel 与 Linux x64 只有未签名的 CI 试验构建，尚未完成实体设备端到端验证；请先阅读[跨平台说明](./CROSS_PLATFORM.md)。
 
 ## 1. 安装前检查
 
 建议准备：
 
--   Windows 10/11 x64；
+-   Windows 10/11 x64，或用于试验的 macOS 15 / Ubuntu 22.04 x64 环境；
 -   16 GB 以上内存；
 -   8 GB 显存的 NVIDIA GPU（推荐，但不是强制）；
 -   至少 8 GB 可用磁盘空间；推荐预留 12 GB；
 -   可访问 Ollama 官方网站和模型仓库的网络。
 
-小允翻译暂时沿用 Pot 的 `com.pot-app.desktop` bundle identifier，以保留已有数据。请不要与原版 Pot 并行安装或同时运行，以免配置、托盘和快捷键互相影响。
+Windows 版本暂时沿用 Pot 的 `com.pot-app.desktop` bundle identifier，以保留已有数据，因此不建议在 Windows 上与原版 Pot 并行安装或同时运行。macOS/Linux 的平台配置使用独立 identifier `io.github.xiaoyun0922.translator`，正常情况下不会与原版 Pot 共用应用数据；试验构建升级前仍建议备份重要数据。
 
-## 2. 安装 Windows 客户端
+## 2. 安装客户端
+
+### 2.1 Windows Release
 
 1. 打开[最新 Release](https://github.com/Xiaoyun-0922/xiaoyun-translator/releases/latest)。
 2. 下载 `xiaoyun-translator_*_x64-setup.exe`。
@@ -24,6 +26,14 @@
 4. 双击安装。
 
 安装包当前未签名，SmartScreen 可能提示“Windows 已保护你的电脑”。确认文件来自本仓库后，点击“更多信息 → 仍要运行”。
+
+### 2.2 macOS/Linux workflow artifact
+
+macOS 与 Linux 构建不在 Releases 中。请从成功完成的 **Actions → Cross-platform CI** 运行下载对应 artifact，先核对其中的 SHA-256，再按[跨平台说明](./CROSS_PLATFORM.md)安装。
+
+-   macOS 构建无 Developer ID 签名且未公证。使用划词前须授权“辅助功能”，使用截图前须授权“屏幕与系统音频录制/屏幕录制”，随后完全退出并重启应用；
+-   Linux 构建未签名。先安装 `libxcb1`、`libxrandr2`、`libdbus-1-3`、`tesseract-ocr` 和 `espeak-ng`；Wayland 下的全局快捷键、划词和截图受合成器与 portal 限制；
+-   这些构建只经过 CI 编译和自动化测试，不能视为已在 Apple Silicon、Intel Mac、GNOME 或 KDE 实机验证。
 
 ## 3. 三步接入 Ollama
 
@@ -48,7 +58,7 @@ gemma4:e4b-it-qat
 
 1. 保持小允翻译在运行或系统托盘中。
 2. 在浏览器、Word、PDF 阅读器或其他程序中选中一段文字。
-3. 按 `Ctrl+D`。
+3. 按 `Ctrl+D`；macOS 按 `Command+D`。
 4. 浮窗跟随鼠标显示，译文会流式出现。
 
 浮窗支持复制、朗读和固定。未固定时点击其他位置会关闭并中断当前请求。
@@ -62,7 +72,7 @@ gemma4:e4b-it-qat
 
 ## 5. Ctrl+E：截图、公式与扫描文字
 
-1. 按 `Ctrl+E`。
+1. 按 `Ctrl+E`；macOS 按 `Command+E`。
 2. 拖动鼠标框选屏幕区域。
 3. Gemma 4 会识别文字、公式或混排内容并翻译。
 
@@ -134,7 +144,8 @@ TeX 可在“设置 → 文献存储”选择 `auto`、Tectonic、XeLaTeX、pdfL
 
 提交 Issue 前请准备：
 
--   软件版本、Windows 版本；
+-   软件版本、操作系统版本与 CPU 架构；
+-   Linux 桌面环境以及 X11/Wayland 会话类型；
 -   `ollama --version` 与 `ollama list` 输出；
 -   复现步骤；
 -   不含隐私数据的截图；

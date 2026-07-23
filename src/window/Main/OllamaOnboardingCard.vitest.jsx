@@ -67,6 +67,7 @@ describe('Ollama 首次接入向导', () => {
         render(
             <OllamaOnboardingCard
                 desktop
+                platform='windows'
                 invokeCommand={invokeCommand}
             />
         );
@@ -92,6 +93,7 @@ describe('Ollama 首次接入向导', () => {
         render(
             <OllamaOnboardingCard
                 desktop
+                platform='windows'
                 invokeCommand={invokeCommand}
             />
         );
@@ -120,6 +122,7 @@ describe('Ollama 首次接入向导', () => {
         render(
             <OllamaOnboardingCard
                 desktop
+                platform='windows'
                 invokeCommand={invokeCommand}
                 createChannel={stream.createChannel}
             />
@@ -155,5 +158,47 @@ describe('Ollama 首次接入向导', () => {
         pendingPull.reject('模型下载已取消');
         await screen.findByText(/模型下载已取消/u);
         expect(statusCalls).toBeGreaterThanOrEqual(1);
+    });
+
+    it('Linux 服务停止时提示终端命令，不声称应用可直接启动', async () => {
+        const invokeCommand = vi.fn(async (command) => {
+            if (command === 'ollama_get_setup_status') {
+                return {
+                    ...stoppedOllama,
+                    executablePath: '/usr/local/bin/ollama',
+                };
+            }
+            throw new Error(`unexpected ${command}`);
+        });
+        render(
+            <OllamaOnboardingCard
+                desktop
+                platform='linux'
+                invokeCommand={invokeCommand}
+            />
+        );
+
+        expect(await screen.findByText('请在终端运行 ollama serve，然后重新检测。')).toBeTruthy();
+        expect(screen.queryByRole('button', { name: '启动 Ollama 服务' })).toBeNull();
+        expect(invokeCommand.mock.calls.map(([command]) => command)).not.toContain('ollama_start_local_service');
+    });
+
+    it('macOS 安装步骤使用平台对应的官方应用文案', async () => {
+        const invokeCommand = vi.fn(async (command) => {
+            if (command === 'ollama_get_setup_status') return missingOllama;
+            if (command === 'ollama_open_official_download') return undefined;
+            throw new Error(`unexpected ${command}`);
+        });
+        render(
+            <OllamaOnboardingCard
+                desktop
+                platform='macos'
+                invokeCommand={invokeCommand}
+            />
+        );
+
+        await screen.findByText('官方 macOS 应用');
+        fireEvent.click(screen.getByRole('button', { name: '打开 Ollama macOS 下载页' }));
+        await waitFor(() => expect(invokeCommand).toHaveBeenCalledWith('ollama_open_official_download'));
     });
 });

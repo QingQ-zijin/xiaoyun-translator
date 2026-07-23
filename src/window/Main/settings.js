@@ -105,8 +105,8 @@ export function normalizeHotkey(value) {
     let key = '';
 
     rawParts.forEach((part) => {
-        const lower = part.toLocaleLowerCase();
-        if (['ctrl', 'control', 'cmd', 'command', 'meta', 'commandorcontrol'].includes(lower)) {
+        const lower = part.toLowerCase();
+        if (['ctrl', 'control', 'cmd', 'command', 'meta', 'commandorcontrol', '⌘'].includes(lower)) {
             parts.add('CommandOrControl');
         } else if (lower === 'alt' || lower === 'option') {
             parts.add('Alt');

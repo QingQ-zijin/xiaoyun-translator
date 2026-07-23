@@ -11,6 +11,11 @@ import {
     PiSpeakerHigh,
 } from 'react-icons/pi';
 
+import { formatShortcutForPlatform, getPlatformPresentation } from '../../../utils/platform';
+
+const PLATFORM_PRESENTATION = getPlatformPresentation();
+const ZOOM_SHORTCUT = formatShortcutForPlatform('CommandOrControl');
+
 export function getTranslationStatusPresentation(translationStatus) {
     if (translationStatus?.enabled === false) {
         return { state: 'disabled', label: '已关闭', color: '#9aa0aa' };
@@ -213,7 +218,7 @@ export default function ReaderTopbar({
                 <output
                     className='zoom-status'
                     aria-label='当前缩放比例'
-                    title='Ctrl + 鼠标滚轮，或触摸板双指捏合缩放'
+                    title={`${ZOOM_SHORTCUT} + 鼠标滚轮，或触摸板双指捏合缩放`}
                 >
                     {Math.round(scale * 100)}%
                 </output>
@@ -237,7 +242,7 @@ export default function ReaderTopbar({
                 </span>
                 <span className='voice-status'>
                     <PiSpeakerHigh aria-hidden='true' />
-                    Windows 本地语音
+                    {PLATFORM_PRESENTATION.speechStatus}
                 </span>
             </div>
         </header>

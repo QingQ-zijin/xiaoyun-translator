@@ -15,7 +15,10 @@ import { resolveAcademicTargetLanguage, synthesizeSpeech, translateAcademic } fr
 import { UNIFIED_OLLAMA_MODEL } from '../../domains/ollama/runtime';
 import { useVoice } from '../../hooks/useVoice';
 import { writeClipboardText } from '../../utils/clipboard';
+import { formatShortcutForPlatform } from '../../utils/platform';
 import FormattedTranslation from '../Translate/components/FormattedTranslation';
+
+const INPUT_TRANSLATE_SHORTCUT = formatShortcutForPlatform('CommandOrControl+Enter');
 
 const LANGUAGE_OPTIONS = [
     { value: 'auto', label: '自动检测' },
@@ -257,7 +260,7 @@ export default function TranslationWorkspace() {
                                     void runTranslation();
                                 }
                             }}
-                            placeholder='粘贴论文段落，按 Ctrl+Enter 开始翻译…'
+                            placeholder={`粘贴论文段落，按 ${INPUT_TRANSLATE_SHORTCUT} 开始翻译…`}
                             spellCheck='false'
                         />
                         <span className='translate-panel__count'>{sourceText.length.toLocaleString()} 字符</span>

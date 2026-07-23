@@ -3,6 +3,7 @@ import { Channel, invoke } from '@tauri-apps/api/core';
 import { PiArrowClockwise, PiCheckCircle, PiDownloadSimple, PiGlobe, PiPlay, PiSpinnerGap, PiX } from 'react-icons/pi';
 
 import { UNIFIED_OLLAMA_MODEL } from '../../domains/ollama/runtime';
+import { desktopPlatform, getPlatformPresentation } from '../../utils/platform';
 import { getRecommendedModelMetadata } from './ollamaModels';
 
 const MODEL_METADATA = getRecommendedModelMetadata(UNIFIED_OLLAMA_MODEL);
@@ -41,7 +42,9 @@ export default function OllamaOnboardingCard({
     invokeCommand = invoke,
     createChannel = () => new Channel(),
     onStatusChange,
+    platform = desktopPlatform,
 }) {
+    const platformPresentation = getPlatformPresentation(platform);
     const [setup, setSetup] = useState(null);
     const [checking, setChecking] = useState(desktop);
     const [busy, setBusy] = useState('');
@@ -204,14 +207,18 @@ export default function OllamaOnboardingCard({
                             ? '已检测到本机程序'
                             : setup?.manageable === false
                               ? '使用远程服务'
-                              : '官方安装程序')
+                              : platformPresentation.ollamaInstallDetail)
                     }
                 />
                 <SetupStep
                     complete={serviceComplete}
                     active={activeStep === 'service'}
                     title='启动服务'
-                    detail={setup?.serverVersion ? `服务版本 ${setup.serverVersion}` : '本地端口 11434'}
+                    detail={
+                        setup?.serverVersion
+                            ? `服务版本 ${setup.serverVersion}`
+                            : platformPresentation.ollamaServiceDetail
+                    }
                 />
                 <SetupStep
                     complete={modelComplete}
@@ -311,25 +318,29 @@ export default function OllamaOnboardingCard({
                             ) : (
                                 <PiGlobe aria-hidden='true' />
                             )}
-                            打开 Ollama 官方下载页
+                            {platformPresentation.ollamaDownloadAction}
                         </button>
                     ) : !serviceComplete ? (
-                        <button
-                            type='button'
-                            className='is-primary'
-                            onClick={() => void startService()}
-                            disabled={Boolean(busy)}
-                        >
-                            {busy === 'start' ? (
-                                <PiSpinnerGap
-                                    className='is-spinning'
-                                    aria-hidden='true'
-                                />
-                            ) : (
-                                <PiPlay aria-hidden='true' />
-                            )}
-                            {busy === 'start' ? '启动中…' : '启动 Ollama 服务'}
-                        </button>
+                        platformPresentation.canStartOllamaService ? (
+                            <button
+                                type='button'
+                                className='is-primary'
+                                onClick={() => void startService()}
+                                disabled={Boolean(busy)}
+                            >
+                                {busy === 'start' ? (
+                                    <PiSpinnerGap
+                                        className='is-spinning'
+                                        aria-hidden='true'
+                                    />
+                                ) : (
+                                    <PiPlay aria-hidden='true' />
+                                )}
+                                {busy === 'start' ? '启动中…' : '启动 Ollama 服务'}
+                            </button>
+                        ) : (
+                            <span>{platformPresentation.ollamaServiceGuidance}</span>
+                        )
                     ) : !modelComplete ? (
                         <button
                             type='button'

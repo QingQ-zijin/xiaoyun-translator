@@ -32,29 +32,52 @@ gemma4:e4b-it-qat
 
 软件不会在未确认的情况下静默下载模型。
 
-## 命令行安装
+## 安装与命令行接入
 
 ### 1. 安装 Ollama
 
-从 [Ollama 官方下载页](https://ollama.com/download/windows) 安装 Windows 版本。
+只从 Ollama 官方渠道安装：
 
-安装完成后打开一个新的 PowerShell：
+-   **Windows**：从 [Ollama Windows 下载页](https://ollama.com/download/windows) 运行官方安装程序；
+-   **macOS**：按 [Ollama macOS 说明](https://docs.ollama.com/macos) 安装应用。Ollama 当前要求 macOS 14 Sonoma 或更新版本，支持 Apple M 系列 GPU；Intel Mac 为 CPU 运行；
+-   **Linux**：按 [Ollama Linux 说明](https://docs.ollama.com/linux) 使用官方安装脚本或手动安装。官方脚本命令为：
 
-```powershell
+```sh
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+Linux 安装脚本会请求系统级写入权限；如不希望直接运行脚本，请先阅读脚本内容或改用官方页面的手动安装步骤。
+
+安装完成后打开一个新的终端：
+
+```console
 ollama --version
 ```
 
 ### 2. 启动服务
 
-Windows 官方安装通常会自动启动 Ollama。若未启动：
+Windows/macOS 官方应用通常会启动 Ollama。Linux 官方脚本在使用 systemd 的发行版上通常会创建服务，可执行：
 
-```powershell
+```sh
+sudo systemctl enable --now ollama
+sudo systemctl status ollama
+```
+
+不使用 systemd 或服务未启动时，可在单独终端前台运行：
+
+```console
 ollama serve
 ```
 
 不要在已有服务运行时重复执行 `ollama serve`。
 
-检查 API：
+macOS/Linux 检查 API：
+
+```sh
+curl http://127.0.0.1:11434/api/tags
+```
+
+Windows PowerShell 检查 API：
 
 ```powershell
 curl.exe http://127.0.0.1:11434/api/tags
@@ -62,13 +85,13 @@ curl.exe http://127.0.0.1:11434/api/tags
 
 ### 3. 下载模型
 
-```powershell
+```console
 ollama pull gemma4:e4b-it-qat
 ```
 
 检查：
 
-```powershell
+```console
 ollama list
 ```
 
@@ -83,16 +106,20 @@ ollama list
 3. 开启“启用本地 Ollama”；
 4. 点击“保存设置”。
 
+macOS/Linux 客户端本身仍是未签名 CI 试验构建；Ollama 安装成功不代表划词、截图权限或 Wayland/X11 集成已经验证。平台权限与运行依赖见[跨平台说明](./CROSS_PLATFORM.md)。
+
 ## 显存和性能
 
 推荐 8 GB 或以上显存、16 GB 或以上系统内存。
 
 查看模型是否进入 GPU：
 
-```powershell
+```console
 ollama ps
 nvidia-smi
 ```
+
+`nvidia-smi` 仅适用于配置了 NVIDIA 驱动的平台。Apple Silicon 可通过 `ollama ps` 查看模型状态；Intel Mac 的 Ollama 当前为 CPU 运行，本项目尚未验证该模型在 Intel Mac 上的交互性能。
 
 8 GB 显存属于可用但偏紧的配置。建议：
 
@@ -117,21 +144,32 @@ CPU 也可以运行 Ollama，但本项目未将 CPU-only 作为流畅体验目�
 
 ### 软件显示“无法连接 Ollama”
 
-依次执行：
+先执行：
 
-```powershell
+```console
 ollama --version
 ollama list
+```
+
+再检查本机 API：
+
+```sh
+# macOS/Linux
+curl http://127.0.0.1:11434/api/tags
+```
+
+```powershell
+# Windows PowerShell
 curl.exe http://127.0.0.1:11434/api/tags
 ```
 
--   第一条失败：重新安装 Ollama，并重新打开 PowerShell。
--   前两条成功、第三条失败：启动 Ollama 服务。
--   三条都成功：确认软件地址没有多余路径或错误端口，然后点击“重新检测”。
+-   `ollama --version` 失败：重新安装 Ollama，并重新打开终端。
+-   前两条成功、API 失败：启动 Ollama 服务。
+-   三项都成功：确认软件地址没有多余路径或错误端口，然后点击“重新检测”。
 
 ### 模型未安装
 
-```powershell
+```console
 ollama pull gemma4:e4b-it-qat
 ollama list
 ```
@@ -147,7 +185,7 @@ ollama list
 
 ### 模型已安装但翻译很慢
 
-```powershell
+```console
 ollama ps
 nvidia-smi
 ```
@@ -173,10 +211,16 @@ nvidia-smi
 
 ### 端口被占用
 
-默认端口为 11434。检查监听进程：
+默认端口为 11434。Windows PowerShell 检查监听进程：
 
 ```powershell
 Get-NetTCPConnection -LocalPort 11434 -ErrorAction SilentlyContinue
+```
+
+macOS/Linux：
+
+```sh
+lsof -nP -iTCP:11434 -sTCP:LISTEN
 ```
 
 不要为本地默认端口随意开启公网防火墙规则。

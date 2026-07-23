@@ -29,6 +29,7 @@ import {
 } from '../../domains/translation';
 import { useVoice } from '../../hooks/useVoice';
 import { writeClipboardText } from '../../utils/clipboard';
+import { formatShortcutForPlatform, getPlatformPresentation } from '../../utils/platform';
 import {
     acceptSelectionRequestId,
     hideTranslationWindow,
@@ -37,6 +38,8 @@ import {
 } from '../../utils/translation_flow';
 import './translate.css';
 const appWindow = getCurrentWebviewWindow();
+const PLATFORM_PRESENTATION = getPlatformPresentation();
+const SELECTION_TRANSLATE_SHORTCUT = formatShortcutForPlatform('CommandOrControl+D');
 
 // 富文本与 KaTeX 只在首批译文到达后加载，取词窗口的 ready 握手无需等待大依赖。
 const FormattedTranslation = lazy(() => import('./components/FormattedTranslation'));
@@ -535,7 +538,7 @@ export default function Translate() {
                         value={sourceText}
                         autoFocus={false}
                         spellCheck={false}
-                        placeholder='选择文字后按 Ctrl+D，或在这里输入…'
+                        placeholder={`选择文字后按 ${SELECTION_TRANSLATE_SHORTCUT}，或在这里输入…`}
                         onChange={(event) => setSourceText(event.target.value)}
                         onKeyDown={(event) => {
                             if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') runTranslation();
@@ -698,7 +701,7 @@ export default function Translate() {
                             <div>
                                 <span className='model-dot is-local' />
                                 <p>
-                                    <strong>Windows 本地语音</strong>
+                                    <strong>{PLATFORM_PRESENTATION.speechStatus}</strong>
                                     <small>离线朗读</small>
                                 </p>
                             </div>
