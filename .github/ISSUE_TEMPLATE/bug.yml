@@ -1,0 +1,51 @@
+name: Bug 反馈
+description: 报告可以稳定复现的故障
+title: '[Bug] '
+labels: ['bug']
+body:
+    - type: markdown
+      attributes:
+          value: |
+              感谢反馈。提交前请先确认已阅读 README 与故障排查文档，并搜索过已有 Issue。
+              请不要粘贴论文全文、私人路径、API 密钥或其他敏感数据。
+    - type: input
+      id: version
+      attributes:
+          label: 小允翻译版本
+          placeholder: 例如 4.5.0
+      validations:
+          required: true
+    - type: input
+      id: windows
+      attributes:
+          label: Windows 版本
+          placeholder: 例如 Windows 11 24H2
+      validations:
+          required: true
+    - type: input
+      id: ollama
+      attributes:
+          label: Ollama 与模型
+          placeholder: 例如 Ollama 0.x，gemma4:e4b-it-qat
+    - type: textarea
+      id: description
+      attributes:
+          label: 问题描述
+          description: 你看到了什么？预期应该是什么？
+      validations:
+          required: true
+    - type: textarea
+      id: reproduction
+      attributes:
+          label: 复现步骤
+          placeholder: |
+              1. 打开……
+              2. 选择……
+              3. 按下……
+      validations:
+          required: true
+    - type: textarea
+      id: logs
+      attributes:
+          label: 日志或截图
+          description: 请先删除选中文本、论文内容、用户名和本地路径等隐私信息。

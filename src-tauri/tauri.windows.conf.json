@@ -1,0 +1,27 @@
+{
+  "bundle": {
+    "externalBin": [
+      "target/release/selection-helper"
+    ],
+    "licenseFile": "../LICENSE",
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "",
+      "webviewInstallMode": {
+        "silent": true,
+        "type": "embedBootstrapper"
+      },
+      "nsis": {
+        "displayLanguageSelector": true,
+        "installerIcon": "icons/icon.ico",
+        "installMode": "currentUser",
+        "languages": [
+          "SimpChinese",
+          "TradChinese",
+          "English"
+        ]
+      }
+    }
+  }
+}

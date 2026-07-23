@@ -1,0 +1,59 @@
+{
+    "build": {
+        "beforeDevCommand": "pnpm dev",
+        "beforeBuildCommand": "pnpm build",
+        "frontendDist": "../dist",
+        "devUrl": "http://localhost:1420"
+    },
+    "bundle": {
+        "active": true,
+        "category": "Utility",
+        "copyright": "GPLv3",
+        "targets": ["nsis"],
+        "macOS": {
+            "entitlements": null,
+            "exceptionDomain": "",
+            "frameworks": [],
+            "providerShortName": null,
+            "signingIdentity": null
+        },
+        "longDescription": "小允专属的学术翻译与 AI 论文阅读器",
+        "shortDescription": "小允翻译与 AI 论文阅读器",
+        "externalBin": [],
+        "resources": [],
+        "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+        "linux": {
+            "deb": {
+                "depends": ["libxdo-dev", "libxcb1", "libxrandr2", "tesseract-ocr"]
+            },
+            "rpm": {
+                "depends": ["libxdo-dev", "libxcb1", "libxrandr2", "tesseract-ocr"]
+            }
+        }
+    },
+    "productName": "小允翻译",
+    "mainBinaryName": "小允翻译",
+    "version": "4.5.0",
+    "identifier": "com.pot-app.desktop",
+    "plugins": {},
+    "app": {
+        "withGlobalTauri": false,
+        "security": {
+            "assetProtocol": {
+                "scope": ["$CACHE/**", "$CONFIG/**"],
+                "enable": true
+            },
+            "devCsp": "default-src * data: ; img-src * 'self' asset: https: data: ; style-src * 'unsafe-inline'; worker-src 'self' blob: ; script-src * 'unsafe-eval';",
+            "csp": "default-src 'self' ipc: asset: http://asset.localhost https://asset.localhost; img-src 'self' asset: http://asset.localhost https://asset.localhost data: blob:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; script-src 'self'; connect-src 'self' ipc: asset: http://asset.localhost https://asset.localhost http://ipc.localhost http://127.0.0.1:11434 http://localhost:11434 http://[::1]:11434 https:"
+        },
+        "windows": [
+            {
+                "title": "Daemon",
+                "label": "daemon",
+                "visible": false,
+                "url": "daemon.html",
+                "useHttpsScheme": true
+            }
+        ]
+    }
+}

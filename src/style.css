@@ -1,0 +1,40 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+    margin: 0;
+    padding: 0;
+}
+
+html {
+    border-radius: 10px !important;
+    background: transparent !important;
+    overflow: hidden;
+}
+
+html[data-window='main'],
+html[data-window='config'],
+html[data-window='research'] {
+    border-radius: 0 !important;
+    background: #f7f4ee !important;
+}
+
+.app-loading {
+    width: 100vw;
+    height: 100vh;
+    background: #faf9fc;
+}
+
+*::-webkit-scrollbar {
+    width: 5px;
+}
+
+*::-webkit-scrollbar-thumb {
+    background: #c0c1c550;
+    border-radius: 5px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+    background: #c0c1c550;
+}

@@ -1,0 +1,28 @@
+{
+  "identifier": "desktop-core",
+  "description": "小允翻译桌面窗口所需的最小权限",
+  "local": true,
+  "windows": [
+    "daemon",
+    "main",
+    "translate",
+    "screenshot"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:window:allow-close",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-resizable",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-minimize",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-is-maximized",
+    "core:window:allow-current-monitor",
+    "core:window:allow-start-dragging",
+    "clipboard-manager:allow-write-text",
+    "dialog:allow-open"
+  ]
+}

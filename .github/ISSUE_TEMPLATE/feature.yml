@@ -1,0 +1,24 @@
+name: 功能建议
+description: 提议改进翻译、OCR 或学术阅读体验
+title: '[Feature] '
+labels: ['enhancement']
+body:
+    - type: textarea
+      id: problem
+      attributes:
+          label: 使用场景
+          description: 你在什么学术工作流里遇到了什么问题？
+      validations:
+          required: true
+    - type: textarea
+      id: proposal
+      attributes:
+          label: 建议方案
+          description: 描述你希望看到的行为和交互。
+      validations:
+          required: true
+    - type: textarea
+      id: alternatives
+      attributes:
+          label: 替代方案与参考
+          description: 可以附上类似产品、论文或公开资料链接。

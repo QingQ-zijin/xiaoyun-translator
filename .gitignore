@@ -1,0 +1,55 @@
+# 日志
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# JavaScript
+node_modules
+dist
+dist-ssr
+*.local
+
+# Rust / Tauri 构建与生成目录
+target
+**/target
+src-tauri/gen
+
+# 本地测试、调试与覆盖率产物
+coverage
+.tmp
+tmp
+.playwright-cli
+output
+playwright-report
+test-results
+design-qa.md
+
+# 本地数据库与运行状态
+*.db
+*.db-shm
+*.db-wal
+
+# 本地环境与密钥
+.env
+.env.*
+!.env.example
+
+# 安装包由 GitHub Release 分发，不提交到源码仓库
+*.exe
+*.msi
+*.msix
+*.dmg
+*.AppImage
+
+# 编辑器与操作系统文件
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

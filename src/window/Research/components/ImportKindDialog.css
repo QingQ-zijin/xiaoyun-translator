@@ -1,0 +1,153 @@
+.import-kind-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1200;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: rgb(20 24 34 / 24%);
+    backdrop-filter: blur(3px);
+    animation: import-kind-fade-in 120ms ease-out;
+}
+
+.import-kind-dialog {
+    width: min(440px, calc(100vw - 32px));
+    overflow: hidden;
+    border: 1px solid #e2e3eb;
+    border-radius: 18px;
+    background: #fffdfa;
+    box-shadow: 0 22px 70px rgb(28 30 43 / 18%);
+    color: #20222b;
+    animation: import-kind-rise-in 150ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.import-kind-dialog > header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 24px 24px 18px;
+}
+
+.import-kind-dialog > header span {
+    color: #777985;
+    font-size: 13px;
+}
+
+.import-kind-dialog h2 {
+    margin: 5px 0 0;
+    font-size: 21px;
+    line-height: 1.25;
+}
+
+.import-kind-dialog__close {
+    display: grid;
+    width: 34px;
+    height: 34px;
+    flex: 0 0 auto;
+    place-items: center;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: #777985;
+    cursor: pointer;
+}
+
+.import-kind-dialog__close:hover {
+    background: #f0eef8;
+    color: #2a2737;
+}
+
+.import-kind-dialog__options {
+    display: grid;
+    border-block: 1px solid #ecebf1;
+}
+
+.import-kind-dialog__options > button {
+    display: grid;
+    grid-template-columns: 46px 1fr auto;
+    align-items: center;
+    gap: 14px;
+    min-height: 86px;
+    padding: 14px 22px;
+    border: 0;
+    border-bottom: 1px solid #ecebf1;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition:
+        background 120ms ease,
+        color 120ms ease;
+}
+
+.import-kind-dialog__options > button:last-child {
+    border-bottom: 0;
+}
+
+.import-kind-dialog__options > button:hover,
+.import-kind-dialog__options > button:focus-visible {
+    outline: 0;
+    background: #f4f1ff;
+    color: #5944c8;
+}
+
+.import-kind-dialog__options > button:disabled {
+    cursor: wait;
+    opacity: 0.56;
+}
+
+.import-kind-dialog__icon {
+    display: grid;
+    width: 46px;
+    height: 46px;
+    place-items: center;
+    border-radius: 13px;
+    background: #efeafe;
+    color: #7057df;
+    font-size: 24px;
+}
+
+.import-kind-dialog__options strong,
+.import-kind-dialog__options small {
+    display: block;
+}
+
+.import-kind-dialog__options strong {
+    margin-bottom: 4px;
+    font-size: 16px;
+}
+
+.import-kind-dialog__options small {
+    color: #747682;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.import-kind-dialog > p {
+    margin: 0;
+    padding: 15px 24px 18px;
+    color: #8a8c96;
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+@keyframes import-kind-fade-in {
+    from {
+        opacity: 0;
+    }
+}
+
+@keyframes import-kind-rise-in {
+    from {
+        opacity: 0;
+        transform: translateY(8px) scale(0.985);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .import-kind-backdrop,
+    .import-kind-dialog {
+        animation: none;
+    }
+}

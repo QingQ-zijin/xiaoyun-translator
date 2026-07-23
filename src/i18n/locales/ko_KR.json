@@ -1,0 +1,18 @@
+{
+    "translation": {
+        "common": {
+            "ok": "Ok",
+            "cancel": "취소",
+            "save": "저장",
+            "write_clipboard": "클립보드에 작성",
+            "plugin": "플러그인"
+        },
+        "services": {
+            "translate": {
+                "lingva": {
+                    "title": "Lingva"
+                }
+            }
+        }
+    }
+}
