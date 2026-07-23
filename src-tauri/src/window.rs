@@ -209,23 +209,27 @@ fn translate_window() -> Result<WebviewWindow, String> {
     let monitor = current_monitor(mouse_x, mouse_y);
     let monitor_position = monitor.as_ref().map(Monitor::position);
     let mut builder =
-        WebviewWindowBuilder::new(&app, "translate", WebviewUrl::App("index.html".into()))
-            .title("小允翻译")
-            .visible(false)
-            .focused(false)
-            .inner_size(TRANSLATE_WINDOW_WIDTH, TRANSLATE_WINDOW_HEIGHT)
-            .min_inner_size(TRANSLATE_WINDOW_MIN_WIDTH, TRANSLATE_WINDOW_MIN_HEIGHT)
-            .maximizable(false)
-            .decorations(false)
-            .transparent(true)
-            .skip_taskbar(true)
-            .on_page_load(|_window, payload| {
-                if matches!(payload.event(), PageLoadEvent::Started) {
-                    // WebView 刷新或 renderer 恢复后，旧监听器已经失效；必须重新握手。
-                    mark_translate_window_loading();
-                    info!("快捷翻译 WebView 开始加载，等待 ready 握手");
-                }
-            });
+        WebviewWindowBuilder::new(&app, "translate", WebviewUrl::App("index.html".into()));
+    #[cfg(target_os = "windows")]
+    {
+        builder = builder.transparent(true);
+    }
+    let mut builder = builder
+        .title("小允翻译")
+        .visible(false)
+        .focused(false)
+        .inner_size(TRANSLATE_WINDOW_WIDTH, TRANSLATE_WINDOW_HEIGHT)
+        .min_inner_size(TRANSLATE_WINDOW_MIN_WIDTH, TRANSLATE_WINDOW_MIN_HEIGHT)
+        .maximizable(false)
+        .decorations(false)
+        .skip_taskbar(true)
+        .on_page_load(|_window, payload| {
+            if matches!(payload.event(), PageLoadEvent::Started) {
+                // WebView 刷新或 renderer 恢复后，旧监听器已经失效；必须重新握手。
+                mark_translate_window_loading();
+                info!("快捷翻译 WebView 开始加载，等待 ready 握手");
+            }
+        });
     if let Some(position) = monitor_position {
         builder = builder.position(position.x as f64, position.y as f64);
     }
@@ -952,12 +956,16 @@ async fn screenshot_window(generation: u64) -> Result<Option<WebviewWindow>, Str
     let (mouse_x, mouse_y) = mouse_position();
     let monitor_position = current_monitor(mouse_x, mouse_y).map(|monitor| *monitor.position());
     let mut builder =
-        WebviewWindowBuilder::new(&app, "screenshot", WebviewUrl::App("index.html".into()))
-            .title("小允翻译 - 截图")
-            .decorations(false)
-            .transparent(true)
-            .skip_taskbar(true)
-            .visible(false);
+        WebviewWindowBuilder::new(&app, "screenshot", WebviewUrl::App("index.html".into()));
+    #[cfg(target_os = "windows")]
+    {
+        builder = builder.transparent(true);
+    }
+    let mut builder = builder
+        .title("小允翻译 - 截图")
+        .decorations(false)
+        .skip_taskbar(true)
+        .visible(false);
     if let Some(position) = monitor_position {
         builder = builder.position(position.x as f64, position.y as f64);
     }
