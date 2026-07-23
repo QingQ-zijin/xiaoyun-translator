@@ -5,7 +5,8 @@ import path from 'node:path';
 import test from 'node:test';
 
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
-const readProjectFile = (relativePath) => readFileSync(path.join(repoRoot, relativePath), 'utf8');
+const readProjectFile = (relativePath) =>
+    readFileSync(path.join(repoRoot, relativePath), 'utf8').replace(/\r\n?/gu, '\n');
 
 const readRule = (css, selector) => {
     const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
