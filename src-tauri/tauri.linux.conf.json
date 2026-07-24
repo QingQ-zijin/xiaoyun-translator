@@ -1,8 +1,9 @@
 {
-    "tauri": {
-        "systemTray": {
-            "iconPath": "icons/icon.ico",
-            "iconAsTemplate": true
-        }
-    }
+  "identifier": "io.github.xiaoyun0922.translator",
+  "bundle": {
+    "targets": [
+      "deb",
+      "appimage"
+    ]
+  }
 }

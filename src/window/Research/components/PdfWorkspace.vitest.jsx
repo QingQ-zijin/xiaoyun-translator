@@ -300,7 +300,7 @@ describe('PDF 文内笔记标记', () => {
         expect(onSelection).toHaveBeenCalledOnce();
     });
 
-    it('触摸板捏合与 Ctrl+滚轮连续缩放，普通双指滚动不被阅读器拦截', async () => {
+    it('触摸板捏合与 Ctrl/Command+滚轮连续缩放，普通双指滚动不被阅读器拦截', async () => {
         const onScaleChange = vi.fn();
         const { container } = render(
             <PdfWorkspace
@@ -352,7 +352,21 @@ describe('PDF 文内笔记标记', () => {
             });
             expect(workspace.dispatchEvent(trackpadPinch)).toBe(false);
             await waitFor(() => expect(onScaleChange).toHaveBeenCalled());
-            expect(onScaleChange.mock.calls.at(-1)[0]).toBeGreaterThan(1.25);
+            const zoomedInScale = onScaleChange.mock.calls.at(-1)[0];
+            expect(zoomedInScale).toBeGreaterThan(1.25);
+
+            const macCommandWheel = new WheelEvent('wheel', {
+                bubbles: true,
+                cancelable: true,
+                metaKey: true,
+                deltaY: 80,
+                clientX: 320,
+                clientY: 260,
+            });
+            const callsBeforeCommandWheel = onScaleChange.mock.calls.length;
+            expect(workspace.dispatchEvent(macCommandWheel)).toBe(false);
+            await waitFor(() => expect(onScaleChange.mock.calls.length).toBeGreaterThan(callsBeforeCommandWheel));
+            expect(onScaleChange.mock.calls.at(-1)[0]).toBeLessThan(zoomedInScale);
         } finally {
             document.elementFromPoint = previousElementFromPoint;
         }

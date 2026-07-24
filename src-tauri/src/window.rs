@@ -209,23 +209,27 @@ fn translate_window() -> Result<WebviewWindow, String> {
     let monitor = current_monitor(mouse_x, mouse_y);
     let monitor_position = monitor.as_ref().map(Monitor::position);
     let mut builder =
-        WebviewWindowBuilder::new(&app, "translate", WebviewUrl::App("index.html".into()))
-            .title("小允翻译")
-            .visible(false)
-            .focused(false)
-            .inner_size(TRANSLATE_WINDOW_WIDTH, TRANSLATE_WINDOW_HEIGHT)
-            .min_inner_size(TRANSLATE_WINDOW_MIN_WIDTH, TRANSLATE_WINDOW_MIN_HEIGHT)
-            .maximizable(false)
-            .decorations(false)
-            .transparent(true)
-            .skip_taskbar(true)
-            .on_page_load(|_window, payload| {
-                if matches!(payload.event(), PageLoadEvent::Started) {
-                    // WebView 刷新或 renderer 恢复后，旧监听器已经失效；必须重新握手。
-                    mark_translate_window_loading();
-                    info!("快捷翻译 WebView 开始加载，等待 ready 握手");
-                }
-            });
+        WebviewWindowBuilder::new(&app, "translate", WebviewUrl::App("index.html".into()));
+    #[cfg(target_os = "windows")]
+    {
+        builder = builder.transparent(true);
+    }
+    let mut builder = builder
+        .title("小允翻译")
+        .visible(false)
+        .focused(false)
+        .inner_size(TRANSLATE_WINDOW_WIDTH, TRANSLATE_WINDOW_HEIGHT)
+        .min_inner_size(TRANSLATE_WINDOW_MIN_WIDTH, TRANSLATE_WINDOW_MIN_HEIGHT)
+        .maximizable(false)
+        .decorations(false)
+        .skip_taskbar(true)
+        .on_page_load(|_window, payload| {
+            if matches!(payload.event(), PageLoadEvent::Started) {
+                // WebView 刷新或 renderer 恢复后，旧监听器已经失效；必须重新握手。
+                mark_translate_window_loading();
+                info!("快捷翻译 WebView 开始加载，等待 ready 握手");
+            }
+        });
     if let Some(position) = monitor_position {
         builder = builder.position(position.x as f64, position.y as f64);
     }
@@ -340,10 +344,16 @@ fn show_without_activating(window: &WebviewWindow) {
 
 #[cfg(not(target_os = "windows"))]
 fn show_without_activating(window: &WebviewWindow) {
-    let _ = window.unmaximize();
-    let _ = window.unminimize();
+    if let Err(error) = window.unmaximize() {
+        warn!("恢复快捷翻译窗口最大化状态失败：{error}");
+    }
+    if let Err(error) = window.unminimize() {
+        warn!("恢复快捷翻译窗口最小化状态失败：{error}");
+    }
     normalize_translate_window(window);
-    let _ = window.show();
+    if let Err(error) = window.show() {
+        warn!("显示快捷翻译窗口失败：{error}");
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -422,8 +432,12 @@ fn activate_translate_window(window: &WebviewWindow) {
 
 #[cfg(not(target_os = "windows"))]
 fn activate_translate_window(window: &WebviewWindow) {
-    let _ = window.unmaximize();
-    let _ = window.unminimize();
+    if let Err(error) = window.unmaximize() {
+        warn!("恢复快捷翻译窗口最大化状态失败：{error}");
+    }
+    if let Err(error) = window.unminimize() {
+        warn!("恢复快捷翻译窗口最小化状态失败：{error}");
+    }
     normalize_translate_window(window);
     if let Err(error) = window.show().and_then(|_| window.set_focus()) {
         warn!("快捷翻译窗口聚焦失败：{error}");
@@ -565,13 +579,20 @@ fn hide_translate_window_verified(window: &WebviewWindow) -> Result<(), String> 
     window
         .hide()
         .map_err(|error| format!("隐藏快捷翻译窗口失败：{error}"))?;
-    if window
-        .is_visible()
-        .map_err(|error| format!("读取快捷翻译窗口可见性失败：{error}"))?
-    {
-        return Err("快捷翻译窗口仍然可见".to_string());
+    // Cocoa/GTK/Wayland 后端可能在下一轮原生事件循环才更新可见性。短暂重试可避免
+    // 把已经成功排队的 hide 误报为失败，同时仍保留“确认隐藏后再清会话 ID”的约束。
+    for attempt in 0..3 {
+        if !window
+            .is_visible()
+            .map_err(|error| format!("读取快捷翻译窗口可见性失败：{error}"))?
+        {
+            return Ok(());
+        }
+        if attempt < 2 {
+            std::thread::sleep(Duration::from_millis(15));
+        }
     }
-    Ok(())
+    Err("快捷翻译窗口仍然可见".to_string())
 }
 
 /// 隐藏当前展示会话或收回展示 ID 已丢失的孤儿窗口。
@@ -860,13 +881,34 @@ pub fn main_window(route: Option<&str>) -> Result<WebviewWindow, String> {
             .build()
             .map_err(|error| error.to_string())?
     };
-    let _ = window.show();
-    let _ = window.unminimize();
-    let _ = window.set_focus();
+    show_main_window(&window)?;
     if let Some(route) = route {
         let _ = window.emit("main_navigate", route);
     }
     Ok(window)
+}
+
+#[cfg(target_os = "windows")]
+fn show_main_window(window: &WebviewWindow) -> Result<(), String> {
+    // 保留 Windows 已验证的调用顺序；WebView2 在隐藏窗口上先 show 再恢复最小化更稳定。
+    let _ = window.show();
+    let _ = window.unminimize();
+    let _ = window.set_focus();
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn show_main_window(window: &WebviewWindow) -> Result<(), String> {
+    // Cocoa/GTK 应先恢复最小化，再显示并请求焦点；错误向上传递给托盘/单实例入口记录。
+    window
+        .unminimize()
+        .map_err(|error| format!("恢复论文库窗口失败：{error}"))?;
+    window
+        .show()
+        .map_err(|error| format!("显示论文库窗口失败：{error}"))?;
+    window
+        .set_focus()
+        .map_err(|error| format!("聚焦论文库窗口失败：{error}"))
 }
 
 #[tauri::command]
@@ -914,12 +956,16 @@ async fn screenshot_window(generation: u64) -> Result<Option<WebviewWindow>, Str
     let (mouse_x, mouse_y) = mouse_position();
     let monitor_position = current_monitor(mouse_x, mouse_y).map(|monitor| *monitor.position());
     let mut builder =
-        WebviewWindowBuilder::new(&app, "screenshot", WebviewUrl::App("index.html".into()))
-            .title("小允翻译 - 截图")
-            .decorations(false)
-            .transparent(true)
-            .skip_taskbar(true)
-            .visible(false);
+        WebviewWindowBuilder::new(&app, "screenshot", WebviewUrl::App("index.html".into()));
+    #[cfg(target_os = "windows")]
+    {
+        builder = builder.transparent(true);
+    }
+    let mut builder = builder
+        .title("小允翻译 - 截图")
+        .decorations(false)
+        .skip_taskbar(true)
+        .visible(false);
     if let Some(position) = monitor_position {
         builder = builder.position(position.x as f64, position.y as f64);
     }

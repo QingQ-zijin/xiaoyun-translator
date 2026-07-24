@@ -3,6 +3,7 @@ import { Channel, invoke } from '@tauri-apps/api/core';
 import { PiArrowClockwise, PiCheckCircle, PiDownloadSimple, PiGlobe, PiPlay, PiSpinnerGap, PiX } from 'react-icons/pi';
 
 import { UNIFIED_OLLAMA_MODEL } from '../../domains/ollama/runtime';
+import { desktopPlatform, getPlatformPresentation } from '../../utils/platform';
 import { getRecommendedModelMetadata } from './ollamaModels';
 
 const MODEL_METADATA = getRecommendedModelMetadata(UNIFIED_OLLAMA_MODEL);
@@ -26,14 +27,36 @@ function requestId() {
 
 function SetupStep({ complete, active, title, detail }) {
     return (
-        <li className={[complete ? 'is-complete' : '', active ? 'is-active' : ''].filter(Boolean).join(' ')}>
+        <li
+            className={[complete ? 'is-complete' : '', active ? 'is-active' : ''].filter(Boolean).join(' ')}
+            aria-current={active ? 'step' : undefined}
+        >
             <span aria-hidden='true'>{complete ? <PiCheckCircle /> : null}</span>
             <div>
                 <strong>{title}</strong>
                 <small>{detail}</small>
+                <span className='visually-hidden'>{complete ? '已完成' : active ? '当前步骤' : '未开始'}</span>
             </div>
         </li>
     );
+}
+
+function humanizeSetupError(reason, action = '操作') {
+    const raw = String(reason ?? '').trim();
+    const normalized = raw.toLocaleLowerCase();
+    if (/no space|disk full|磁盘空间|空间不足/u.test(normalized)) {
+        return '磁盘空间不足。请至少释放 12 GB 空间后重试，已下载的模型分层不会丢失。';
+    }
+    if (/permission|access denied|拒绝访问|权限/u.test(normalized)) {
+        return `${action}被系统权限阻止。请退出 Ollama 和小允翻译后重新打开，再重试。`;
+    }
+    if (/timeout|timed out|超时/u.test(normalized)) {
+        return `${action}等待超时。请先重启 Ollama，再点击“重新检测”。`;
+    }
+    if (/connect|connection|无法连接|failed to fetch|network|网络/u.test(normalized)) {
+        return `${action}无法连接 Ollama。请确认网络可用且 Ollama 正在运行，然后重试。`;
+    }
+    return raw || `${action}失败，请重试。`;
 }
 
 export default function OllamaOnboardingCard({
@@ -41,7 +64,11 @@ export default function OllamaOnboardingCard({
     invokeCommand = invoke,
     createChannel = () => new Channel(),
     onStatusChange,
+    platform = desktopPlatform,
+    autoMonitor = false,
+    autoStartService = false,
 }) {
+    const platformPresentation = getPlatformPresentation(platform);
     const [setup, setSetup] = useState(null);
     const [checking, setChecking] = useState(desktop);
     const [busy, setBusy] = useState('');
@@ -50,6 +77,7 @@ export default function OllamaOnboardingCard({
     const [confirmingDownload, setConfirmingDownload] = useState(false);
     const [pullProgress, setPullProgress] = useState(null);
     const pullRequestRef = useRef('');
+    const autoStartAttemptRef = useRef('');
 
     const publishStatus = useCallback(
         (next) => {
@@ -66,14 +94,17 @@ export default function OllamaOnboardingCard({
                 setActionMessage('桌面版会在这里检测 Ollama、服务与模型状态。');
                 return null;
             }
-            if (!quiet) setChecking(true);
-            setError('');
+            if (!quiet) {
+                setChecking(true);
+                setError('');
+            }
             try {
                 const next = await invokeCommand('ollama_get_setup_status');
                 publishStatus(next);
+                if (next?.modelRunning) setError('');
                 return next;
             } catch (reason) {
-                setError(`检测失败：${String(reason)}`);
+                if (!quiet) setError(humanizeSetupError(reason, '检测'));
                 return null;
             } finally {
                 if (!quiet) setChecking(false);
@@ -91,30 +122,90 @@ export default function OllamaOnboardingCard({
         setError('');
         try {
             await invokeCommand('ollama_open_official_download');
-            setActionMessage('已打开 Ollama 官方下载页。完成安装后请返回并重新检测。');
+            setActionMessage('已打开官方下载页。完成官方安装后回到这里，软件会自动检测并继续。');
         } catch (reason) {
-            setError(`无法打开官方下载页：${String(reason)}`);
+            setError(humanizeSetupError(reason, '打开官方下载页'));
         } finally {
             setBusy('');
         }
     };
 
-    const startService = async () => {
-        setBusy('start');
+    const startService = useCallback(
+        async ({ automatic = false } = {}) => {
+            setBusy('start');
+            setError('');
+            setActionMessage(automatic ? '已检测到 Ollama，正在自动启动后台服务…' : '');
+            try {
+                const next = await invokeCommand('ollama_start_local_service');
+                publishStatus(next);
+                setActionMessage(
+                    next?.modelRunning
+                        ? 'Ollama 服务与 Gemma 4 E4B 已就绪。'
+                        : next?.modelInstalled
+                          ? 'Ollama 服务已启动。Gemma 4 E4B 已保存，下一步加载模型。'
+                          : 'Ollama 服务已启动。下一步只需确认下载模型。'
+                );
+            } catch (reason) {
+                setError(humanizeSetupError(reason, '启动 Ollama'));
+            } finally {
+                setBusy('');
+            }
+        },
+        [invokeCommand, publishStatus]
+    );
+
+    const activateModel = useCallback(async () => {
+        setBusy('activate');
         setError('');
-        setActionMessage('');
+        setActionMessage('正在加载 Gemma 4 E4B，第一次可能需要几十秒…');
         try {
-            const next = await invokeCommand('ollama_start_local_service');
+            const next = await invokeCommand('ollama_activate_unified_model');
             publishStatus(next);
-            setActionMessage('Ollama 服务已启动。');
+            setActionMessage('Gemma 4 E4B 已加载并可立即使用。');
         } catch (reason) {
-            setError(String(reason));
+            setError(humanizeSetupError(reason, '加载模型'));
         } finally {
             setBusy('');
         }
-    };
+    }, [invokeCommand, publishStatus]);
+
+    useEffect(() => {
+        if (!autoMonitor || !desktop || checking || busy || setup?.modelRunning) return undefined;
+        const timer = globalThis.setTimeout(() => void refresh({ quiet: true }), 2500);
+        return () => globalThis.clearTimeout(timer);
+    }, [autoMonitor, busy, checking, desktop, refresh, setup?.installed, setup?.modelInstalled, setup?.modelRunning]);
+
+    useEffect(() => {
+        if (
+            !autoStartService ||
+            !desktop ||
+            checking ||
+            busy ||
+            !setup?.manageable ||
+            !setup?.installed ||
+            setup?.running ||
+            !platformPresentation.canStartOllamaService
+        ) {
+            return;
+        }
+        const signature = `${setup.executablePath || setup.clientVersion || 'ollama'}:stopped`;
+        if (autoStartAttemptRef.current === signature) return;
+        autoStartAttemptRef.current = signature;
+        void startService({ automatic: true });
+    }, [autoStartService, busy, checking, desktop, platformPresentation.canStartOllamaService, setup, startService]);
+
+    useEffect(
+        () => () => {
+            const activeRequestId = pullRequestRef.current;
+            if (activeRequestId) {
+                void invokeCommand('ollama_cancel_model_pull', { requestId: activeRequestId }).catch(() => undefined);
+            }
+        },
+        [invokeCommand]
+    );
 
     const pullModel = async () => {
+        if (pullRequestRef.current) return;
         const currentRequestId = requestId();
         const channel = createChannel();
         pullRequestRef.current = currentRequestId;
@@ -142,7 +233,7 @@ export default function OllamaOnboardingCard({
                 setPullProgress((current) => ({ ...current, state: 'cancelled' }));
                 setActionMessage('模型下载已取消，已经下载的可复用分层会由 Ollama 保留。');
             } else {
-                setError(message);
+                setError(humanizeSetupError(message, '下载模型'));
             }
         } finally {
             channel.onmessage = () => {};
@@ -159,13 +250,14 @@ export default function OllamaOnboardingCard({
         try {
             await invokeCommand('ollama_cancel_model_pull', { requestId: currentRequestId });
         } catch (reason) {
-            setError(`取消失败：${String(reason)}`);
+            setError(humanizeSetupError(reason, '取消下载'));
         }
     };
 
     const installComplete = Boolean(setup?.installed || (!setup?.manageable && setup?.running));
     const serviceComplete = Boolean(setup?.running);
-    const modelComplete = Boolean(setup?.modelInstalled);
+    const modelInstalled = Boolean(setup?.modelInstalled);
+    const modelComplete = Boolean(modelInstalled && setup?.modelRunning);
     const activeStep = !installComplete ? 'install' : !serviceComplete ? 'service' : !modelComplete ? 'model' : '';
     const progressPercent = Math.round(Math.min(1, Math.max(0, Number(pullProgress?.progress) || 0)) * 100);
     const transferred = formatBytes(pullProgress?.completed);
@@ -183,7 +275,7 @@ export default function OllamaOnboardingCard({
                     type='button'
                     className='ollama-onboarding__refresh'
                     onClick={() => void refresh()}
-                    disabled={checking || busy === 'pull'}
+                    disabled={checking || Boolean(busy) || confirmingDownload}
                 >
                     <PiArrowClockwise
                         className={checking ? 'is-spinning' : ''}
@@ -204,20 +296,24 @@ export default function OllamaOnboardingCard({
                             ? '已检测到本机程序'
                             : setup?.manageable === false
                               ? '使用远程服务'
-                              : '官方安装程序')
+                              : platformPresentation.ollamaInstallDetail)
                     }
                 />
                 <SetupStep
                     complete={serviceComplete}
                     active={activeStep === 'service'}
                     title='启动服务'
-                    detail={setup?.serverVersion ? `服务版本 ${setup.serverVersion}` : '本地端口 11434'}
+                    detail={
+                        setup?.serverVersion
+                            ? `服务版本 ${setup.serverVersion}`
+                            : platformPresentation.ollamaServiceDetail
+                    }
                 />
                 <SetupStep
                     complete={modelComplete}
                     active={activeStep === 'model'}
-                    title='下载模型'
-                    detail={`Gemma 4 E4B · ${modelSize}`}
+                    title={modelInstalled && !modelComplete ? '加载模型' : '下载模型'}
+                    detail={modelInstalled ? 'Gemma 4 E4B 已保存，加载后即可使用' : `Gemma 4 E4B · ${modelSize}`}
                 />
             </ol>
 
@@ -233,18 +329,24 @@ export default function OllamaOnboardingCard({
                         />
                         正在检测 Ollama…
                     </>
+                ) : busy === 'pull' ? (
+                    '模型下载中；完成后会自动加载。'
                 ) : modelComplete ? (
                     <>
                         <PiCheckCircle aria-hidden='true' />
                         {setup?.message || '本地 AI 已准备好'}
                     </>
                 ) : (
-                    setup?.message || actionMessage || '按照上面的步骤完成本地 AI 配置。'
+                    actionMessage || setup?.message || '按照上面的步骤完成本地 AI 配置。'
                 )}
             </div>
 
             {busy === 'pull' ? (
-                <div className='ollama-onboarding__progress'>
+                <div
+                    className='ollama-onboarding__progress'
+                    role='status'
+                    aria-live='polite'
+                >
                     <div>
                         <span>{pullProgress?.message || actionMessage || '正在下载模型…'}</span>
                         <strong>{pullProgress?.total ? `${progressPercent}%` : '准备中'}</strong>
@@ -270,11 +372,15 @@ export default function OllamaOnboardingCard({
             {confirmingDownload ? (
                 <div
                     className='ollama-onboarding__confirmation'
-                    role='alert'
+                    role='group'
+                    aria-label='确认模型下载'
                 >
                     <div>
                         <strong>确认下载{modelSize} 模型？</strong>
-                        <span>文件保存在 Ollama 的本地模型目录；取消后已完成的分层可供下次复用。</span>
+                        <span>
+                            这是唯一的大文件下载。至少需要 12 GB 可用空间，建议预留 15
+                            GB；中断后可以续传，模型只保存在本机。
+                        </span>
                     </div>
                     <button
                         type='button'
@@ -286,6 +392,7 @@ export default function OllamaOnboardingCard({
                         type='button'
                         className='is-primary'
                         onClick={() => void pullModel()}
+                        autoFocus
                     >
                         确认下载
                     </button>
@@ -311,26 +418,30 @@ export default function OllamaOnboardingCard({
                             ) : (
                                 <PiGlobe aria-hidden='true' />
                             )}
-                            打开 Ollama 官方下载页
+                            {platformPresentation.ollamaDownloadAction}
                         </button>
                     ) : !serviceComplete ? (
-                        <button
-                            type='button'
-                            className='is-primary'
-                            onClick={() => void startService()}
-                            disabled={Boolean(busy)}
-                        >
-                            {busy === 'start' ? (
-                                <PiSpinnerGap
-                                    className='is-spinning'
-                                    aria-hidden='true'
-                                />
-                            ) : (
-                                <PiPlay aria-hidden='true' />
-                            )}
-                            {busy === 'start' ? '启动中…' : '启动 Ollama 服务'}
-                        </button>
-                    ) : !modelComplete ? (
+                        platformPresentation.canStartOllamaService ? (
+                            <button
+                                type='button'
+                                className='is-primary'
+                                onClick={() => void startService()}
+                                disabled={Boolean(busy)}
+                            >
+                                {busy === 'start' ? (
+                                    <PiSpinnerGap
+                                        className='is-spinning'
+                                        aria-hidden='true'
+                                    />
+                                ) : (
+                                    <PiPlay aria-hidden='true' />
+                                )}
+                                {busy === 'start' ? '启动中…' : '启动 Ollama 服务'}
+                            </button>
+                        ) : (
+                            <span>{platformPresentation.ollamaServiceGuidance}</span>
+                        )
+                    ) : !modelInstalled ? (
                         <button
                             type='button'
                             className='is-primary'
@@ -339,8 +450,24 @@ export default function OllamaOnboardingCard({
                             <PiDownloadSimple aria-hidden='true' />
                             下载 Gemma 4 E4B（{modelSize}）
                         </button>
+                    ) : !modelComplete ? (
+                        <button
+                            type='button'
+                            className='is-primary'
+                            onClick={() => void activateModel()}
+                            disabled={Boolean(busy)}
+                        >
+                            {busy === 'activate' ? (
+                                <PiSpinnerGap
+                                    className='is-spinning'
+                                    aria-hidden='true'
+                                />
+                            ) : (
+                                <PiPlay aria-hidden='true' />
+                            )}
+                            {busy === 'activate' ? '正在加载…' : '加载 Gemma 4 E4B'}
+                        </button>
                     ) : null}
-                    {actionMessage && setup?.message ? <span>{actionMessage}</span> : null}
                 </div>
             ) : null}
 

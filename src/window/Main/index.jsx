@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event';
 
 import Research from '../Research';
 import MainRail from './MainRail';
+import OllamaFirstRunGate from './OllamaFirstRunGate';
 import SettingsPanel from './SettingsPanel';
 import TranslationWorkspace from './TranslationWorkspace';
 import { initialMainRoute, normalizeRoute } from './navigation';
@@ -46,6 +47,7 @@ export default function Main() {
 
     return (
         <div className={`main-shell main-shell--${active}`}>
+            <OllamaFirstRunGate />
             <MainRail
                 active={active}
                 onNavigate={navigate}
@@ -58,7 +60,7 @@ export default function Main() {
                     onNavigate={navigate}
                 />
             ) : active === 'translate' ? (
-                <TranslationWorkspace />
+                <TranslationWorkspace onNavigate={navigate} />
             ) : (
                 <SettingsPanel />
             )}

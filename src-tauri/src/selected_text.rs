@@ -145,17 +145,64 @@ where
         selection_sidecar().capture(is_cancelled)
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
         if is_cancelled() {
             return Err(SelectionError::Cancelled);
         }
-        let text = selection::get_text().trim().to_string();
-        if text.is_empty() {
+        let text = std::panic::catch_unwind(selection::get_text).map_err(|_| {
+            SelectionError::WorkerUnavailable("系统选区接口发生异常，请检查辅助功能权限".into())
+        })?;
+        finish_platform_capture(text, is_cancelled())
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        let _ = is_cancelled;
+        Err(SelectionError::WorkerUnavailable(
+            "当前平台尚未提供划词接口".to_string(),
+        ))
+    }
+}
+
+#[cfg(any(test, target_os = "macos", target_os = "linux"))]
+fn finish_platform_capture(
+    text: String,
+    cancelled_after_capture: bool,
+) -> Result<String, SelectionError> {
+    if cancelled_after_capture {
+        return Err(SelectionError::Cancelled);
+    }
+    let text = text.trim().to_string();
+    if text.is_empty() {
+        Err(SelectionError::NoSelection)
+    } else {
+        Ok(text)
+    }
+}
+
+#[cfg(test)]
+mod cross_platform_tests {
+    use super::{finish_platform_capture, SelectionError};
+
+    #[test]
+    fn platform_selection_is_trimmed_and_empty_text_is_rejected() {
+        assert_eq!(
+            finish_platform_capture("  Michaelis–Menten  ".to_string(), false),
+            Ok("Michaelis–Menten".to_string())
+        );
+        assert_eq!(
+            finish_platform_capture(" \n\t".to_string(), false),
             Err(SelectionError::NoSelection)
-        } else {
-            Ok(text)
-        }
+        );
+    }
+
+    #[test]
+    fn cancellation_after_platform_capture_discards_stale_text() {
+        assert_eq!(
+            finish_platform_capture("stale selection".to_string(), true),
+            Err(SelectionError::Cancelled)
+        );
     }
 }
 

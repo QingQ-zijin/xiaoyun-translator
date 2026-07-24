@@ -45,6 +45,7 @@ import {
     shouldConfirmEmbeddingInstall,
 } from '../../domains/research/model';
 import { resolveAcademicTargetLanguage } from '../../domains/translation/language';
+import { formatShortcutForPlatform, getPlatformPresentation } from '../../utils/platform';
 import {
     annotationUndoOperation,
     appendAnnotationUndoAction,
@@ -79,6 +80,8 @@ const INITIAL_DEMO_SELECTION = createSelectionAnchor({
 });
 
 const PAPER_SELECTION_TRANSLATION_TIMEOUT_MS = 20_000;
+const PLATFORM_PRESENTATION = getPlatformPresentation();
+const UNDO_SHORTCUT = formatShortcutForPlatform('CommandOrControl+Z');
 
 function LibraryTopbar({ translationStatus }) {
     const modelStatus = getTranslationStatusPresentation(translationStatus);
@@ -99,7 +102,7 @@ function LibraryTopbar({ translationStatus }) {
                 </span>
                 <span className='voice-status'>
                     <PiSpeakerHigh aria-hidden='true' />
-                    Windows 本地语音
+                    {PLATFORM_PRESENTATION.speechStatus}
                 </span>
             </div>
         </header>
@@ -245,9 +248,12 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
 
     useEffect(() => {
         let cancelled = false;
+        let timer = null;
         const refresh = async () => {
+            let ready = false;
             try {
                 const status = await getTranslationStatus();
+                ready = status?.ready === true;
                 if (!cancelled) setTranslationStatus(status);
             } catch (reason) {
                 if (!cancelled) {
@@ -258,12 +264,15 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                     }));
                 }
             }
+            if (!cancelled) {
+                // 启动阶段快速追踪预热结果；就绪后降低轮询频率，避免无意义请求。
+                timer = setTimeout(refresh, ready ? 30_000 : 2_000);
+            }
         };
         void refresh();
-        const interval = setInterval(refresh, 30_000);
         return () => {
             cancelled = true;
-            clearInterval(interval);
+            clearTimeout(timer);
         };
     }, []);
     const isReader = Boolean(paperId && document);
@@ -754,7 +763,9 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                     createAnnotationUndoAction('delete', { before: snapshot })
                 );
                 setOcrNotice(
-                    annotation.kind === 'highlight' ? '已取消高亮，可按 Ctrl+Z 恢复' : '已删除批注，可按 Ctrl+Z 恢复'
+                    annotation.kind === 'highlight'
+                        ? `已取消高亮，可按 ${UNDO_SHORTCUT} 恢复`
+                        : `已删除批注，可按 ${UNDO_SHORTCUT} 恢复`
                 );
             } catch (reason) {
                 if (sourceEpoch === readerEpochRef.current) {

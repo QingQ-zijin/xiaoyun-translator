@@ -1,22 +1,56 @@
 # 小允翻译快速上手
 
-这份指南适用于首次安装小允翻译、接入 Ollama，并开始使用 Ctrl+D、Ctrl+E 和文献阅读器的用户。
+这份指南适用于首次安装小允翻译、接入 Ollama，并开始使用划词、截图和文献阅读器的用户。Windows/Linux 默认快捷键为 `Ctrl+D`、`Ctrl+E`，macOS 为 `Command+D`、`Command+E`。
 
-> 当前仅验证 Windows 10/11 x64。安装包尚未签名，请只从本仓库 Releases 下载。
+## 先完成第一次翻译（Windows）
+
+Ollama 是一个**需要单独安装、在后台运行的本地 AI 程序**。小允翻译通过它完成翻译、OCR 和文献分析；默认全部在本机运行，**不需要注册账号或填写 API Key**。
+
+在 Windows 上，小允翻译的首次接入向导会自动检测 Ollama、启动本地服务、显示模型下载进度，并在完成后预热模型。你只需要完成 Ollama 官方安装，并确认一次约 6.1 GB 的模型下载，不必先使用命令行。
+
+开始前请确认：
+
+-   Windows 10 22H2 或 Windows 11 x64；
+-   16 GB 以上内存；
+-   至少 12 GB 可用磁盘空间，推荐 15 GB；
+-   可以访问 Ollama 官方网站和模型仓库的网络。
+
+按以下步骤完成一次可见的成功验证：
+
+1. 从 [最新 Release](https://github.com/Xiaoyun-0922/xiaoyun-translator/releases/latest) 下载并安装 `xiaoyun-translator_*_x64-setup.exe`。
+2. 首次打开小允翻译会出现“先接入本地 Ollama”。点击向导中的主按钮，完成 [Ollama Windows 官方安装](https://ollama.com/download/windows)。
+3. 返回小允翻译。向导会自动检测 Ollama 并启动本地服务；你只需点击“下载 Gemma 4 E4B（约 6.1 GB）”并确认。保持网络连接，等待“本地 AI 已准备好”，再点击“开始使用”。
+4. 打开 Windows 记事本，输入并选中 `Hello, world.`，按 `Ctrl+D`。出现中文翻译浮窗即表示接入成功；第一次请求需要加载模型，可能比后续翻译慢。
+
+如果你选择了“暂时跳过，仅浏览文献”，稍后可从“设置 → Ollama”重新打开完整向导。
+
+### 没有成功时先看界面
+
+如果首次向导仍在屏幕上，先点击“重新检测”；如果已经跳过，请打开“设置 → Ollama”再检测。随后按三步向导显示的状态处理：
+
+-   **未检测到 Ollama**：确认官方安装程序已经完成；返回小允翻译后，软件会自动检测并继续。若仍未识别，完全退出并重新打开 Ollama 和小允翻译；
+-   **服务尚未启动**：首次向导通常会自动启动服务；如果停在这一步，点击“启动 Ollama 服务”，等待片刻后重新检测；
+-   **模型尚未安装**：点击“下载 Gemma 4 E4B”，确认下载并保持网络连接；
+-   **已经显示“本地 AI 已准备好”**：在首次向导中点击“开始使用”；若你位于设置页，确认开关已开启并保存设置。再用记事本测试，不要先在浏览器中测试，因为浏览器可能占用 `Ctrl+D`；
+-   **仍未成功**：从系统托盘依次退出 Ollama 和小允翻译，重新打开后再检测。需要进一步诊断时再使用 [Ollama 命令行排错](./OLLAMA.md#故障排查)。
+
+> Windows 10 22H2/11 x64 是当前主要验证和 Release 发布平台。macOS Apple Silicon/Intel 与 Linux x64 只有未签名的 CI 试验构建，尚未完成实体设备端到端验证；请先阅读[跨平台说明](./CROSS_PLATFORM.md)。
 
 ## 1. 安装前检查
 
 建议准备：
 
--   Windows 10/11 x64；
+-   Windows 10 22H2/11 x64，或用于试验的 macOS 15 / Ubuntu 22.04 x64 环境；
 -   16 GB 以上内存；
 -   8 GB 显存的 NVIDIA GPU（推荐，但不是强制）；
--   至少 8 GB 可用磁盘空间；推荐预留 12 GB；
+-   至少 12 GB 可用磁盘空间；推荐预留 15 GB；
 -   可访问 Ollama 官方网站和模型仓库的网络。
 
-小允翻译暂时沿用 Pot 的 `com.pot-app.desktop` bundle identifier，以保留已有数据。请不要与原版 Pot 并行安装或同时运行，以免配置、托盘和快捷键互相影响。
+Windows 版本暂时沿用 Pot 的 `com.pot-app.desktop` bundle identifier，以保留已有数据，因此不建议在 Windows 上与原版 Pot 并行安装或同时运行。macOS/Linux 的平台配置使用独立 identifier `io.github.xiaoyun0922.translator`，正常情况下不会与原版 Pot 共用应用数据；试验构建升级前仍建议备份重要数据。
 
-## 2. 安装 Windows 客户端
+## 2. 安装客户端
+
+### 2.1 Windows 10 22H2/11 Release
 
 1. 打开[最新 Release](https://github.com/Xiaoyun-0922/xiaoyun-translator/releases/latest)。
 2. 下载 `xiaoyun-translator_*_x64-setup.exe`。
@@ -25,12 +59,22 @@
 
 安装包当前未签名，SmartScreen 可能提示“Windows 已保护你的电脑”。确认文件来自本仓库后，点击“更多信息 → 仍要运行”。
 
+### 2.2 macOS/Linux workflow artifact
+
+macOS 与 Linux 构建不在 Releases 中。请从成功完成的 **Actions → Cross-platform CI** 运行下载对应 artifact，先核对其中的 SHA-256，再按[跨平台说明](./CROSS_PLATFORM.md)安装。
+
+-   macOS 构建无 Developer ID 签名且未公证。使用划词前须授权“辅助功能”，使用截图前须授权“屏幕与系统音频录制/屏幕录制”，随后完全退出并重启应用；
+-   Linux 构建未签名。先安装 `libxcb1`、`libxrandr2`、`libdbus-1-3`、`tesseract-ocr` 和 `espeak-ng`；Wayland 下的全局快捷键、划词和截图受合成器与 portal 限制；
+-   这些构建只经过 CI 编译和自动化测试，不能视为已在 Apple Silicon、Intel Mac、GNOME 或 KDE 实机验证。
+
 ## 3. 三步接入 Ollama
 
-首次打开后进入“设置 → Ollama”。
+需要重新配置，或在首次向导中选择跳过时，进入“设置 → Ollama”。
+
+Windows 用户通常不需要打开终端：向导负责检测 Ollama 与模型状态，并可启动本地服务。只有约 6.1 GB 的模型下载需要你再次确认。
 
 1. **安装 Ollama**
-   点击“打开 Ollama 官方下载页”，完成官方安装程序。
+   点击“打开 Ollama 官方下载页”，完成官方安装程序；也可直接使用 [Ollama Windows 官方下载页](https://ollama.com/download/windows)。
 2. **启动服务**
    返回软件点击“重新检测”；若服务未运行，可点击“启动 Ollama 服务”。
 3. **下载模型**
@@ -42,13 +86,13 @@
 gemma4:e4b-it-qat
 ```
 
-向导显示“本地 AI 已准备好”后，点击右上角“保存设置”。命令行接入方式和排错见 [OLLAMA.md](./OLLAMA.md)。
+向导显示“本地 AI 已准备好”后，保持地址 `http://127.0.0.1:11434` 不变，确认“启用本地 Ollama”已开启，再点击右上角“保存设置”。模型的官方名称、命令行接入方式和高级排错见 [OLLAMA.md](./OLLAMA.md)。
 
 ## 4. Ctrl+D：外部划词翻译
 
 1. 保持小允翻译在运行或系统托盘中。
 2. 在浏览器、Word、PDF 阅读器或其他程序中选中一段文字。
-3. 按 `Ctrl+D`。
+3. 按 `Ctrl+D`；macOS 按 `Command+D`。
 4. 浮窗跟随鼠标显示，译文会流式出现。
 
 浮窗支持复制、朗读和固定。未固定时点击其他位置会关闭并中断当前请求。
@@ -62,7 +106,7 @@ gemma4:e4b-it-qat
 
 ## 5. Ctrl+E：截图、公式与扫描文字
 
-1. 按 `Ctrl+E`。
+1. 按 `Ctrl+E`；macOS 按 `Command+E`。
 2. 拖动鼠标框选屏幕区域。
 3. Gemma 4 会识别文字、公式或混排内容并翻译。
 
@@ -134,7 +178,8 @@ TeX 可在“设置 → 文献存储”选择 `auto`、Tectonic、XeLaTeX、pdfL
 
 提交 Issue 前请准备：
 
--   软件版本、Windows 版本；
+-   软件版本、操作系统版本与 CPU 架构；
+-   Linux 桌面环境以及 X11/Wayland 会话类型；
 -   `ollama --version` 与 `ollama list` 输出；
 -   复现步骤；
 -   不含隐私数据的截图；

@@ -36,6 +36,9 @@ describe('SettingsV2 主窗口适配', () => {
         expect(normalizeHotkey('Shift + Alt + e')).toBe('Alt+Shift+E');
         expect(normalizeHotkey('D')).toBe('');
         expect(normalizeHotkey('cmd + option + shift + x + y')).toBe('CommandOrControl+Alt+Shift+X');
+        for (const value of ['⌘+d', 'Command+d', 'Cmd+d', 'Meta+d']) {
+            expect(normalizeHotkey(value)).toBe('CommandOrControl+D');
+        }
         expect(normalizeHotkey('')).toBe('');
     });
 
