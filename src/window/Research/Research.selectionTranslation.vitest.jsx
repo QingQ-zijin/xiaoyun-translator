@@ -246,6 +246,29 @@ describe('论文划词翻译请求时序', () => {
         );
     });
 
+    it('自动启动 Ollama 时展示恢复状态并延长冷启动等待窗口', async () => {
+        const recovering = deferred();
+        bridgeMocks.translateSelection.mockReturnValueOnce(recovering.promise);
+        await openReader();
+        vi.useFakeTimers();
+
+        fireEvent.click(screen.getByRole('button', { name: '选择第一句' }));
+        await act(async () => vi.advanceTimersByTimeAsync(41));
+        const request = bridgeMocks.translateSelection.mock.calls[0][0];
+
+        await act(async () => {
+            request.onStatus('Ollama 已退出，正在自动启动本地 AI…');
+            await Promise.resolve();
+        });
+
+        await act(async () => vi.advanceTimersByTimeAsync(20_001));
+        expect(request.signal.aborted).toBe(false);
+
+        await act(async () => vi.advanceTimersByTimeAsync(110_000));
+        expect(request.signal.aborted).toBe(true);
+        expect(screen.getByRole('alert').textContent).toContain('自动启动超过 130 秒');
+    });
+
     it('关闭浮窗会立即中断在飞请求，旧流不能重新打开结果', async () => {
         const active = deferred();
         bridgeMocks.translateSelection.mockReturnValueOnce(active.promise);

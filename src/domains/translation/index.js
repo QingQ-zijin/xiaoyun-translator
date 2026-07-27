@@ -66,6 +66,7 @@ export async function translateAcademic({
     contextAfter = '',
     paperTitle = '',
     onDelta,
+    onStatus,
     signal,
 }) {
     const sourceText = String(text ?? '').trim();
@@ -86,6 +87,7 @@ export async function translateAcademic({
                 targetLanguage: effectiveTargetLanguage,
             },
             onDelta,
+            onStatus,
             signal,
             label: '学术翻译',
         });

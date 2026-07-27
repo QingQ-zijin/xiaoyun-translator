@@ -1,5 +1,17 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const translationMocks = vi.hoisted(() => ({
+    translateAcademic: vi.fn(),
+}));
+
+vi.mock('../../domains/translation', async (importOriginal) => {
+    const actual = await importOriginal();
+    return {
+        ...actual,
+        translateAcademic: translationMocks.translateAcademic,
+    };
+});
 
 import TranslationWorkspace from './TranslationWorkspace';
 
@@ -25,6 +37,7 @@ const readyStatus = {
 afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+    translationMocks.translateAcademic.mockReset();
 });
 
 describe('学术翻译工作区 Ollama 恢复', () => {
@@ -48,11 +61,38 @@ describe('学术翻译工作区 Ollama 恢复', () => {
         );
 
         expect(await screen.findByRole('button', { name: '完成本地 AI 设置' })).toBeTruthy();
-        const translateButton = screen.getByRole('button', { name: '开始翻译' });
+        const translateButton = screen.getByRole('button', { name: '启动并翻译' });
         expect(translateButton.disabled).toBe(true);
 
         await waitFor(() => expect(screen.getByText('Gemma 4 E4B 就绪')).toBeTruthy());
-        expect(translateButton.disabled).toBe(false);
+        expect(screen.getByRole('button', { name: '开始翻译' }).disabled).toBe(true);
         expect(statusCalls).toBeGreaterThanOrEqual(2);
+    });
+
+    it('后端冷启动时允许一次点击自动恢复并完成翻译', async () => {
+        translationMocks.translateAcademic.mockResolvedValue('恢复后译文');
+        const invokeCommand = vi.fn(async (command) => {
+            if (command === 'get_settings_v2') return settings;
+            if (command === 'ollama_get_setup_status') return coldStatus;
+            throw new Error(`unexpected ${command}`);
+        });
+
+        render(
+            <TranslationWorkspace
+                desktop
+                invokeCommand={invokeCommand}
+                statusPollMs={10_000}
+            />
+        );
+
+        const source = await screen.findByPlaceholderText(/粘贴论文段落/u);
+        fireEvent.change(source, { target: { value: 'Ollama can recover.' } });
+        const start = screen.getByRole('button', { name: '启动并翻译' });
+        expect(start.disabled).toBe(false);
+        fireEvent.click(start);
+
+        expect(await screen.findByText('恢复后译文')).toBeTruthy();
+        expect(translationMocks.translateAcademic).toHaveBeenCalledTimes(1);
+        expect(screen.getByRole('button', { name: '开始翻译' })).toBeTruthy();
     });
 });

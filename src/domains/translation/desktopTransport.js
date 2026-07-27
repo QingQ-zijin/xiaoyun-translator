@@ -5,6 +5,7 @@ import { createThrottledStreamWriter } from '../../services/translate/ollama/str
 const UNKNOWN_COMMAND_PATTERN = /unknown command|command .* not found|not in the allowlist|missing required key/iu;
 const NETWORK_ERROR_PATTERN =
     /failed to fetch|networkerror|network error|load failed|connection refused|actively refused|无法连接/iu;
+const RECOVERY_ERROR_PATTERN = /自动恢复失败|自动启动.+失败/iu;
 
 export function isTauriRuntime() {
     if (typeof window === 'undefined') return false;
@@ -31,6 +32,10 @@ export function normalizeDesktopTranslationError(error, label = '翻译') {
     if (UNKNOWN_COMMAND_PATTERN.test(message)) {
         return `当前程序后端不支持${label}，请安装最新版本后重试。`;
     }
+    if (RECOVERY_ERROR_PATTERN.test(message)) {
+        const detail = message.replace(/^论文划词翻译失败[：:]?\s*/u, '').trim();
+        return detail.startsWith(`${label}失败`) ? detail : `${label}失败：${detail}`;
+    }
     if (NETWORK_ERROR_PATTERN.test(message)) {
         return `${label}失败：无法连接本地翻译服务，请确认 Ollama 正在运行。`;
     }
@@ -49,6 +54,7 @@ export async function translateWithDesktopBackend({
     invokeCommand,
     payload,
     onDelta,
+    onStatus,
     signal,
     label = '翻译',
     createChannel = () => new Channel(),
@@ -68,6 +74,8 @@ export async function translateWithDesktopBackend({
         if (message.event === 'delta') {
             streamedText = String(message.text ?? `${streamedText}${message.delta ?? ''}`);
             streamWriter.push(streamedText);
+        } else if (message.event === 'status') {
+            onStatus?.(String(message.message ?? message.text ?? '').trim());
         }
     };
     const cancel = () => {

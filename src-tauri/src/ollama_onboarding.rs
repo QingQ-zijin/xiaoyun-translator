@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::ipc::Channel;
-use tokio::sync::Notify;
+use tokio::sync::{Mutex as AsyncMutex, Notify};
 use tokio::time::sleep;
 
 const OLLAMA_WINDOWS_DOWNLOAD_URL: &str = "https://ollama.com/download/windows";
@@ -112,6 +112,9 @@ impl Drop for PullRegistration {
 
 static OLLAMA_PULL_CANCELLATIONS: Lazy<Mutex<HashMap<String, PullCancellationSlot>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
+/// 启动 Ollama 必须单飞：应用启动、设置页检测和翻译失败恢复可能同时到达，
+/// 但任何时刻都只能创建一个本机服务进程。
+static OLLAMA_START_LOCK: Lazy<AsyncMutex<()>> = Lazy::new(|| AsyncMutex::new(()));
 
 fn onboarding_client() -> Result<Client, String> {
     Client::builder()
@@ -467,6 +470,12 @@ pub(crate) async fn ensure_local_ollama_service(
     if current.running {
         return Ok(current);
     }
+    let _start_guard = OLLAMA_START_LOCK.lock().await;
+    // 等锁期间其他请求可能已经完成启动；二次检测避免重复创建 `ollama serve`。
+    let current = detect_setup_status(endpoint).await?;
+    if current.running {
+        return Ok(current);
+    }
     if !can_spawn_local_ollama_service(env::consts::OS) {
         return Err(local_service_start_guidance(env::consts::OS));
     }
@@ -524,12 +533,12 @@ pub async fn ollama_activate_unified_model() -> Result<OllamaSetupStatus, String
     let settings = get_settings_v2()?;
     ensure_activation_enabled(settings.ollama.enabled)?;
     let endpoint = settings.ollama.translation;
-    let status = ensure_local_ollama_service(&endpoint).await?;
-    ensure_model_installed_for_activation(&status)?;
-    crate::research_runtime::prewarm_translation_endpoint(&endpoint)
+    crate::research_runtime::ensure_unified_ollama_runtime(&endpoint)
         .await
         .map_err(|error| format!("统一模型激活失败：{error}"))?;
-    detect_setup_status(&endpoint).await
+    let status = detect_setup_status(&endpoint).await?;
+    ensure_model_installed_for_activation(&status)?;
+    Ok(status)
 }
 
 fn prune_pull_cancellations(pulls: &mut HashMap<String, PullCancellationSlot>) {
@@ -785,9 +794,19 @@ pub async fn ollama_pull_unified_model(
     if !status.model_installed {
         return Err("Ollama 下载流已结束，但没有检测到 Gemma 4 E4B 模型".to_string());
     }
-    if should_prewarm_after_pull(settings.ollama.enabled, &status) {
+    // 下载可能持续很久，结束时必须重读最新开关。用户期间关闭本地 AI 时，
+    // 下载仍算成功，但不再把“跳过预热”误报成整次下载失败。
+    let latest_settings = get_settings_v2()?;
+    let endpoint_unchanged = latest_settings
+        .ollama
+        .translation
+        .request_path
+        .trim_end_matches('/')
+        == endpoint.request_path.trim_end_matches('/');
+    if endpoint_unchanged && should_prewarm_after_pull(latest_settings.ollama.enabled, &status) {
         ensure_pull_not_cancelled(&registration.cancellation, &on_event, &request_id)?;
-        let prewarm = crate::research_runtime::prewarm_translation_endpoint(&endpoint);
+        // 下载结束后也加入应用级单飞恢复；取消设置页等待不会销毁已启动的服务进程。
+        let prewarm = crate::research_runtime::ensure_unified_ollama_runtime(&endpoint);
         tokio::select! {
             _ = registration.cancellation.cancelled() => {
                 send_pull_cancelled(&on_event, &request_id)?;

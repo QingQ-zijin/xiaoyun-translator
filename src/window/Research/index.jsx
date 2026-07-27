@@ -80,6 +80,7 @@ const INITIAL_DEMO_SELECTION = createSelectionAnchor({
 });
 
 const PAPER_SELECTION_TRANSLATION_TIMEOUT_MS = 20_000;
+const PAPER_SELECTION_RECOVERY_TIMEOUT_MS = 130_000;
 const PLATFORM_PRESENTATION = getPlatformPresentation();
 const UNDO_SHORTCUT = formatShortcutForPlatform('CommandOrControl+Z');
 
@@ -148,6 +149,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
         loading: false,
         text: startWithDemo ? DEMO_TRANSLATION : '',
         error: '',
+        message: '',
     }));
     const [translationRetryToken, setTranslationRetryToken] = useState(0);
     const [lexiconState, setLexiconState] = useState({ loading: false, entry: null, error: '' });
@@ -398,15 +400,24 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
         const isCurrentRequest = () => translationRequestRef.current.id === requestId && !controller.signal.aborted;
         let watchdogTimer = null;
         // 先立即呈现空的加载浮窗，再用极短防抖发请求；界面响应不再被请求防抖阻塞。
-        setTranslation({ status: 'loading', loading: true, text: '', error: '' });
+        setTranslation({ status: 'loading', loading: true, text: '', error: '', message: '' });
         const timer = setTimeout(() => {
-            watchdogTimer = setTimeout(() => {
-                if (!isCurrentRequest()) return;
-                const message = '论文划词翻译等待超过 20 秒，已取消。请重试。';
-                controller.abort();
-                setTranslation({ status: 'failed', loading: false, text: '', error: message });
-                setTranslationStatus((current) => ({ ...current, ready: false, message }));
-            }, PAPER_SELECTION_TRANSLATION_TIMEOUT_MS);
+            const armWatchdog = (timeoutMs, timeoutMessage) => {
+                clearTimeout(watchdogTimer);
+                watchdogTimer = setTimeout(() => {
+                    if (!isCurrentRequest()) return;
+                    controller.abort();
+                    setTranslation({
+                        status: 'failed',
+                        loading: false,
+                        text: '',
+                        error: timeoutMessage,
+                        message: '',
+                    });
+                    setTranslationStatus((current) => ({ ...current, ready: false, message: timeoutMessage }));
+                }, timeoutMs);
+            };
+            armWatchdog(PAPER_SELECTION_TRANSLATION_TIMEOUT_MS, '论文划词翻译等待超过 20 秒，已取消。请重试。');
             void translateSelection({
                 selection,
                 paperTitle: document.paper.title,
@@ -415,15 +426,34 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                 signal: controller.signal,
                 onDelta: (text) => {
                     if (isCurrentRequest()) {
-                        setTranslation({ status: 'loading', loading: true, text, error: '' });
+                        armWatchdog(
+                            PAPER_SELECTION_TRANSLATION_TIMEOUT_MS,
+                            '论文划词翻译流式输出中断超过 20 秒，已取消。请重试。'
+                        );
+                        setTranslation({ status: 'loading', loading: true, text, error: '', message: '' });
                     }
+                },
+                onStatus: (message) => {
+                    if (!isCurrentRequest()) return;
+                    armWatchdog(
+                        PAPER_SELECTION_RECOVERY_TIMEOUT_MS,
+                        '本地 AI 自动启动超过 130 秒，已取消。请检查 Ollama 后重试。'
+                    );
+                    setTranslation((current) => ({
+                        ...current,
+                        status: 'loading',
+                        loading: true,
+                        error: '',
+                        message,
+                    }));
+                    setTranslationStatus((current) => ({ ...current, ready: false, message }));
                 },
             })
                 .then((text) => {
                     clearTimeout(watchdogTimer);
                     if (isCurrentRequest()) {
                         translationRequestRef.current = { id: requestId, controller: null };
-                        setTranslation({ status: 'complete', loading: false, text, error: '' });
+                        setTranslation({ status: 'complete', loading: false, text, error: '', message: '' });
                         setTranslationStatus((current) => ({
                             ...current,
                             ready: true,
@@ -436,7 +466,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                     if (isCurrentRequest() && reason?.name !== 'AbortError') {
                         translationRequestRef.current = { id: requestId, controller: null };
                         const message = String(reason?.message ?? reason);
-                        setTranslation({ status: 'failed', loading: false, text: '', error: message });
+                        setTranslation({ status: 'failed', loading: false, text: '', error: message, message: '' });
                         setTranslationStatus((current) => ({
                             ...current,
                             ready: false,
@@ -1257,6 +1287,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                         sourceText={selection?.quote ?? ''}
                         loading={translation.loading}
                         error={translation.error}
+                        statusMessage={translation.message}
                         selectionKind={selectionKind}
                         lexiconState={lexiconState}
                         targetLanguage={targetLanguage}

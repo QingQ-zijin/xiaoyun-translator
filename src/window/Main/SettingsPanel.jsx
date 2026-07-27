@@ -479,7 +479,7 @@ export default function SettingsPanel({ platform = desktopPlatform, updater = BR
                             platform={platform}
                             onStatusChange={handleOllamaSetupStatus}
                             autoMonitor
-                            autoStartService
+                            autoStartService={settings.ollama.enabled}
                         />
                         <SettingRow
                             label='启用本地 Ollama'

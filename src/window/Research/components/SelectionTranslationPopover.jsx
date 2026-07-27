@@ -104,6 +104,7 @@ export default function SelectionTranslationPopover({
     lexiconState,
     loading = false,
     error = '',
+    statusMessage = '',
     targetLanguage = 'zh_cn',
     languageOptions = LANGUAGE_OPTIONS,
     onTargetLanguageChange,
@@ -397,7 +398,7 @@ export default function SelectionTranslationPopover({
                         role='status'
                     >
                         <i aria-hidden='true' />
-                        正在翻译…
+                        {statusMessage || '正在翻译…'}
                     </div>
                 ) : null}
                 {!error && !loading && !value ? (

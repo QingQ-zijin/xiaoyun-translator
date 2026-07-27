@@ -38,12 +38,12 @@ const isTauriRuntime = () =>
         globalThis.window?.__TAURI__ || globalThis.window?.__TAURI_METADATA__ || globalThis.window?.__TAURI_INTERNALS__
     );
 
-function WorkspaceStatus({ state, error, backendReady, backendChecking, onOpenSettings }) {
+function WorkspaceStatus({ state, error, runtimeStatus, backendReady, backendChecking, onOpenSettings }) {
     if (state === 'translating') {
         return (
             <span className='translate-workspace__status is-busy'>
                 <PiSpinnerGap aria-hidden='true' />
-                翻译中
+                {runtimeStatus || '翻译中'}
             </span>
         );
     }
@@ -94,6 +94,12 @@ function WorkspaceStatus({ state, error, backendReady, backendChecking, onOpenSe
     );
 }
 
+function isBackendUnavailableError(error) {
+    return /无法连接本地翻译服务|Ollama.+(?:已退出|自动恢复失败|已关闭)|统一模型.+尚未安装|本地 AI.+未准备/iu.test(
+        String(error ?? '')
+    );
+}
+
 export default function TranslationWorkspace({
     onNavigate,
     desktop = isTauriRuntime(),
@@ -109,6 +115,7 @@ export default function TranslationWorkspace({
     const [contextAfter, setContextAfter] = useState('');
     const [state, setState] = useState('idle');
     const [error, setError] = useState('');
+    const [runtimeStatus, setRuntimeStatus] = useState('');
     const [copyState, setCopyState] = useState('复制');
     const [modelName, setModelName] = useState(UNIFIED_OLLAMA_MODEL);
     const [backendReady, setBackendReady] = useState(!desktop);
@@ -167,11 +174,6 @@ export default function TranslationWorkspace({
 
     const runTranslation = useCallback(async () => {
         const text = sourceText.trim();
-        if (!backendReady) {
-            setError('本地 AI 尚未准备好。请先完成 Ollama 接入向导。');
-            setState('error');
-            return;
-        }
         if (!text) {
             setError('请先输入需要翻译的内容。');
             setState('error');
@@ -183,6 +185,7 @@ export default function TranslationWorkspace({
         requestRef.current = controller;
         setResult('');
         setError('');
+        setRuntimeStatus('');
         setState('translating');
         const effectiveTargetLanguage = resolveAcademicTargetLanguage(text, targetLanguage);
         if (effectiveTargetLanguage !== targetLanguage) setTargetLanguage(effectiveTargetLanguage);
@@ -198,17 +201,27 @@ export default function TranslationWorkspace({
                 onDelta: (nextText) => {
                     if (!controller.signal.aborted) setResult(nextText);
                 },
+                onStatus: (message) => {
+                    if (!controller.signal.aborted) setRuntimeStatus(message);
+                },
             });
             if (!controller.signal.aborted) {
                 setResult(translated);
+                setRuntimeStatus('');
+                setBackendReady(true);
+                setBackendChecking(false);
                 setState('ready');
             }
         } catch (reason) {
             if (controller.signal.aborted || reason?.name === 'AbortError') return;
-            setError(String(reason?.message ?? reason));
+            const message = String(reason?.message ?? reason);
+            setRuntimeStatus('');
+            if (isBackendUnavailableError(message)) setBackendReady(false);
+            setBackendChecking(false);
+            setError(message);
             setState('error');
         }
-    }, [backendReady, contextAfter, contextBefore, paperTitle, sourceLanguage, sourceText, targetLanguage]);
+    }, [contextAfter, contextBefore, paperTitle, sourceLanguage, sourceText, targetLanguage]);
 
     const swapLanguages = () => {
         if (sourceLanguage === 'auto') {
@@ -244,6 +257,7 @@ export default function TranslationWorkspace({
         setSourceText('');
         setResult('');
         setError('');
+        setRuntimeStatus('');
         setState('idle');
     };
 
@@ -257,6 +271,7 @@ export default function TranslationWorkspace({
                 <WorkspaceStatus
                     state={state}
                     error={error}
+                    runtimeStatus={runtimeStatus}
                     backendReady={backendReady}
                     backendChecking={backendChecking}
                     onOpenSettings={() => onNavigate?.('settings')}
@@ -414,7 +429,7 @@ export default function TranslationWorkspace({
                         className='main-primary-button'
                         type='button'
                         onClick={runTranslation}
-                        disabled={state === 'translating' || backendChecking || !backendReady}
+                        disabled={state === 'translating' || !sourceText.trim()}
                     >
                         {state === 'translating' ? (
                             <PiSpinnerGap
@@ -424,7 +439,7 @@ export default function TranslationWorkspace({
                         ) : (
                             <PiPaperPlaneRight aria-hidden='true' />
                         )}
-                        {state === 'translating' ? '正在翻译' : '开始翻译'}
+                        {state === 'translating' ? '正在翻译' : backendReady ? '开始翻译' : '启动并翻译'}
                     </button>
                 </div>
             </div>

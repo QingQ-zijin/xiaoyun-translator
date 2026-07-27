@@ -26,6 +26,19 @@ describe('论文划词翻译浮窗', () => {
         expect(dialog.querySelector('.selection-translation-popover__streaming-dot')).not.toBeNull();
     });
 
+    it('冷启动时在浮窗内显示 Ollama 自动恢复进度', () => {
+        render(
+            <SelectionTranslationPopover
+                anchorRect={anchorRect}
+                sourceText='source'
+                loading
+                statusMessage='Ollama 已退出，正在自动启动本地 AI…'
+            />
+        );
+
+        expect(screen.getByRole('status').textContent).toContain('正在自动启动本地 AI');
+    });
+
     it('支持语言、复制、朗读、高亮、笔记、解释和关闭操作', async () => {
         const handlers = {
             onTargetLanguageChange: vi.fn(),

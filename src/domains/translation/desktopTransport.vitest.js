@@ -78,6 +78,15 @@ describe('桌面翻译错误文案', () => {
         );
         expect(normalizeDesktopTranslationError(null, '学术翻译')).toBe('学术翻译失败：本地翻译服务没有返回错误详情。');
     });
+
+    it('自动恢复失败时保留后端给出的具体原因', () => {
+        expect(
+            normalizeDesktopTranslationError(
+                new Error('本地 Ollama 已退出，自动恢复失败：尚未安装 Ollama'),
+                '学术翻译'
+            )
+        ).toBe('学术翻译失败：本地 Ollama 已退出，自动恢复失败：尚未安装 Ollama');
+    });
 });
 
 describe('桌面翻译调用', () => {
@@ -95,6 +104,7 @@ describe('桌面翻译调用', () => {
         const deferred = createDeferred();
         const invokeCommand = vi.fn().mockReturnValue(deferred.promise);
         const onDelta = vi.fn();
+        const onStatus = vi.fn();
         let tauriCallback;
         window.__TAURI_INTERNALS__ = {
             transformCallback: vi.fn((callback) => {
@@ -104,8 +114,16 @@ describe('桌面翻译调用', () => {
             unregisterCallback: vi.fn(),
         };
 
-        const pending = translateWithDesktopBackend({ invokeCommand, payload, onDelta });
+        const pending = translateWithDesktopBackend({ invokeCommand, payload, onDelta, onStatus });
         const [, request] = invokeCommand.mock.calls[0];
+        tauriCallback({
+            index: 0,
+            message: {
+                requestId: request.requestId,
+                event: 'status',
+                message: 'Ollama 已退出，正在自动启动本地 AI…',
+            },
+        });
         tauriCallback({
             index: 0,
             message: { requestId: request.requestId, event: 'delta', text: '流式译文' },
@@ -114,6 +132,7 @@ describe('桌面翻译调用', () => {
 
         await expect(pending).resolves.toBe('流式译文');
         expect(onDelta).toHaveBeenCalledWith('流式译文');
+        expect(onStatus).toHaveBeenCalledWith('Ollama 已退出，正在自动启动本地 AI…');
         expect(request.onEvent.id).toBe(7);
     });
 

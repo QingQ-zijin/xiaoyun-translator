@@ -719,6 +719,7 @@ export async function translateSelection({
     sourceLanguage = 'auto',
     targetLanguage = 'zh_cn',
     onDelta,
+    onStatus,
     signal,
 }) {
     const effectiveTargetLanguage = resolveAcademicTargetLanguage(selection.quote, targetLanguage);
@@ -767,6 +768,7 @@ export async function translateSelection({
         invokeCommand: invokeResearch,
         payload,
         onDelta,
+        onStatus,
         signal,
         label: '论文划词翻译',
     });

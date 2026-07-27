@@ -89,6 +89,7 @@ export default function Translate() {
     const [result, setResult] = useState('');
     const [error, setError] = useState('');
     const [windowState, setWindowState] = useState('idle');
+    const [runtimeStatus, setRuntimeStatus] = useState('');
     const [drawer, setDrawer] = useState(null);
     const [pinned, setPinned] = useState(false);
     const [translationConfig, setTranslationConfig] = useState(null);
@@ -123,6 +124,7 @@ export default function Translate() {
             requestGenerationRef.current += 1;
             translateAbortRef.current?.abort();
             translateAbortRef.current = null;
+            setRuntimeStatus('');
             setState('idle');
         },
         [setState]
@@ -146,6 +148,7 @@ export default function Translate() {
             if (!text) return;
             if (!ollamaEnabledRef.current) {
                 setResult('');
+                setRuntimeStatus('');
                 setError('Ollama 后端已关闭。请在“设置 → Ollama”中开启后再翻译。');
                 setState('error');
                 return;
@@ -156,6 +159,7 @@ export default function Translate() {
             translateAbortRef.current = controller;
             setError('');
             setResult('');
+            setRuntimeStatus('');
             setState('translating');
             const effectiveTargetLanguage = resolveAcademicTargetLanguage(text, targetLanguage || 'zh_cn');
             if (effectiveTargetLanguage !== targetLanguage) setTargetLanguage(effectiveTargetLanguage);
@@ -168,12 +172,17 @@ export default function Translate() {
                     onDelta: (value) => {
                         if (generation === requestGenerationRef.current) setResult(value);
                     },
+                    onStatus: (message) => {
+                        if (generation === requestGenerationRef.current) setRuntimeStatus(message);
+                    },
                 });
                 if (generation !== requestGenerationRef.current) return;
                 setResult(finalResult);
+                setRuntimeStatus('');
                 setState('ready');
             } catch (cause) {
                 if (controller.signal.aborted || generation !== requestGenerationRef.current) return;
+                setRuntimeStatus('');
                 setError(String(cause?.message ?? cause));
                 setState('error');
             }
@@ -199,6 +208,7 @@ export default function Translate() {
         translateAbortRef.current = controller;
         sourceTextRef.current = '';
         setSourceText('');
+        setRuntimeStatus('');
         setError('');
         setResult('');
         setState('recognizing');
@@ -482,7 +492,7 @@ export default function Translate() {
                     <div className='quick-titlebar__identity'>
                         <strong>小允翻译</strong>
                         <span className={`quick-status quick-status--${windowState}`}>
-                            <i /> {WINDOW_STATES[windowState]}
+                            <i /> {runtimeStatus || WINDOW_STATES[windowState]}
                         </span>
                     </div>
                     <button
@@ -527,6 +537,7 @@ export default function Translate() {
                                     setSourceText('');
                                     setResult('');
                                     setError('');
+                                    setRuntimeStatus('');
                                     setState('idle');
                                 }}
                             >

@@ -32,7 +32,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::ipc::Channel;
 use tauri::Emitter;
-use tokio::sync::{Mutex as AsyncMutex, Notify};
+use tokio::sync::{oneshot, watch, Mutex as AsyncMutex, Notify};
 use tokio::time::sleep;
 
 const MAX_OCR_IMAGE_BYTES: usize = 24 * 1024 * 1024;
@@ -48,10 +48,63 @@ static TRANSLATION_REQUEST_SEQUENCE: AtomicUsize = AtomicUsize::new(1);
 static JOBS: Lazy<Mutex<HashMap<String, Arc<JobControl>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 static OCR_EXECUTION_LOCK: Lazy<AsyncMutex<()>> = Lazy::new(|| AsyncMutex::new(()));
+/// 启动服务与加载统一模型必须单飞；翻译、OCR、设置和启动预热可以并发触发恢复。
+static TRANSLATION_RUNTIME_RECOVERY_LOCK: Lazy<AsyncMutex<()>> = Lazy::new(|| AsyncMutex::new(()));
+/// 设置页开关事务串行化，避免旧的“关闭”命令在较新的“开启”之后卸载模型。
+static TRANSLATION_RUNTIME_APPLY_LOCK: Lazy<AsyncMutex<()>> = Lazy::new(|| AsyncMutex::new(()));
+/// watch 保存最新 generation，关闭/重新开启均会推进版本；不会像 Notify 一样丢失边界通知。
+static TRANSLATION_RUNTIME_INTENT_EPOCH: AtomicUsize = AtomicUsize::new(1);
+static TRANSLATION_RUNTIME_INTENT: Lazy<watch::Sender<usize>> = Lazy::new(|| {
+    let (sender, _) = watch::channel(1);
+    sender
+});
+/// 所有自动恢复调用共享一个应用级 in-flight 任务；调用方取消只丢弃自己的接收端。
+static TRANSLATION_RUNTIME_RECOVERY_TASK: Lazy<AsyncMutex<RuntimeRecoveryTaskState>> =
+    Lazy::new(|| AsyncMutex::new(RuntimeRecoveryTaskState::default()));
 static TRANSLATION_CANCELLATIONS: Lazy<Mutex<HashMap<String, TranslationCancellationSlot>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 static ACTIVE_TRANSLATIONS: AtomicUsize = AtomicUsize::new(0);
 static TRANSLATION_IDLE_NOTIFY: Lazy<Notify> = Lazy::new(Notify::new);
+
+#[derive(Default)]
+struct RuntimeRecoveryTaskState {
+    next_id: usize,
+    active: Option<RuntimeRecoveryTask>,
+}
+
+struct RuntimeRecoveryTask {
+    id: usize,
+    key: String,
+    waiters: Vec<oneshot::Sender<Result<(), String>>>,
+}
+
+type RuntimeRecoveryRegistration = (
+    oneshot::Receiver<Result<(), String>>,
+    Option<(usize, OllamaEndpointSettings)>,
+    bool,
+);
+
+fn register_runtime_recovery_waiter(
+    state: &mut RuntimeRecoveryTaskState,
+    key: String,
+    endpoint: &OllamaEndpointSettings,
+) -> RuntimeRecoveryRegistration {
+    let (result_tx, result_rx) = oneshot::channel();
+    if let Some(active) = state.active.as_mut() {
+        let waits_for_requested_runtime = active.key == key;
+        active.waiters.retain(|waiter| !waiter.is_closed());
+        active.waiters.push(result_tx);
+        return (result_rx, None, waits_for_requested_runtime);
+    }
+    state.next_id = state.next_id.wrapping_add(1).max(1);
+    let id = state.next_id;
+    state.active = Some(RuntimeRecoveryTask {
+        id,
+        key,
+        waiters: vec![result_tx],
+    });
+    (result_rx, Some((id, endpoint.clone())), true)
+}
 
 struct TranslationActivityGuard;
 
@@ -96,7 +149,9 @@ struct TranslationCancellation {
 impl TranslationCancellation {
     fn cancel(&self) {
         self.cancelled.store(true, Ordering::Release);
-        self.notify.notify_waiters();
+        // 每个翻译请求任一时刻只有一个取消等待点。notify_one 会保留许可，
+        // 避免取消恰好发生在两个 await 之间时丢失通知。
+        self.notify.notify_one();
     }
 
     fn is_cancelled(&self) -> bool {
@@ -741,6 +796,127 @@ pub(crate) async fn prewarm_translation_endpoint(
     Err("Ollama 已接受预热请求，但 /api/ps 未确认模型已载入".to_string())
 }
 
+fn advance_unified_ollama_runtime_intent() -> usize {
+    let next = TRANSLATION_RUNTIME_INTENT_EPOCH
+        .fetch_add(1, Ordering::AcqRel)
+        .wrapping_add(1);
+    TRANSLATION_RUNTIME_INTENT.send_replace(next);
+    next
+}
+
+fn current_unified_ollama_runtime_intent() -> usize {
+    TRANSLATION_RUNTIME_INTENT_EPOCH.load(Ordering::Acquire)
+}
+
+fn ensure_recovery_request_is_current(endpoint: &OllamaEndpointSettings) -> Result<(), String> {
+    let current_settings = get_settings_v2()?;
+    if !current_settings.ollama.enabled {
+        return Err("Ollama 后端已在设置中关闭，停止自动恢复".to_string());
+    }
+    if normalized_host(&current_settings.ollama.translation) != normalized_host(endpoint) {
+        return Err("Ollama 地址已变更，停止旧地址的自动恢复".to_string());
+    }
+    Ok(())
+}
+
+async fn ensure_unified_ollama_runtime_inner(
+    endpoint: &OllamaEndpointSettings,
+) -> Result<(), String> {
+    let _recovery_guard = TRANSLATION_RUNTIME_RECOVERY_LOCK.lock().await;
+    let recovery_epoch = current_unified_ollama_runtime_intent();
+    let mut intent_changes = TRANSLATION_RUNTIME_INTENT.subscribe();
+    let observed_epoch = *intent_changes.borrow_and_update();
+    if observed_epoch != recovery_epoch {
+        return Err("Ollama 后端状态已变更，停止自动恢复".to_string());
+    }
+    ensure_recovery_request_is_current(endpoint)?;
+    if is_local_ollama_endpoint(endpoint) {
+        let status = ensure_local_ollama_service(endpoint).await?;
+        ensure_recovery_request_is_current(endpoint)?;
+        if current_unified_ollama_runtime_intent() != recovery_epoch {
+            return Err("Ollama 后端状态已变更，停止自动恢复".to_string());
+        }
+        if !status.model_installed {
+            return Err(format!(
+                "统一模型 {} 尚未安装，请先在设置中下载",
+                endpoint.model
+            ));
+        }
+        if status.model_running {
+            return Ok(());
+        }
+    } else if matches!(is_model_running(endpoint).await, Ok(true)) {
+        return Ok(());
+    }
+    ensure_recovery_request_is_current(endpoint)?;
+    if current_unified_ollama_runtime_intent() != recovery_epoch {
+        return Err("Ollama 后端状态已变更，停止自动恢复".to_string());
+    }
+    tokio::select! {
+        biased;
+        changed = intent_changes.changed() => {
+            match changed {
+                Ok(()) => Err("Ollama 后端状态已变更，已取消模型预热".to_string()),
+                Err(_) => Err("Ollama 运行状态监听已关闭，停止模型预热".to_string()),
+            }
+        },
+        result = prewarm_translation_endpoint(endpoint) => result,
+    }
+}
+
+/// 幂等地恢复本机服务并加载统一模型。
+///
+/// 恢复由应用级后台任务持有：Ctrl+D、Ctrl+E 或弹窗取消只停止当前请求的等待，
+/// 不会销毁已经创建了 `ollama serve` 的恢复任务。全局异步锁仍保证只有一个任务
+/// 真正启动服务和加载模型；后续调用会等待并复用它的结果。
+///
+/// 正常热翻译不调用本函数，因此不会额外增加健康探测延迟。
+pub(crate) async fn ensure_unified_ollama_runtime(
+    endpoint: &OllamaEndpointSettings,
+) -> Result<(), String> {
+    ensure_recovery_request_is_current(endpoint)?;
+    let endpoint = endpoint.clone();
+    loop {
+        let epoch = current_unified_ollama_runtime_intent();
+        let key = format!(
+            "{epoch}|{}|{}",
+            normalized_host(&endpoint),
+            endpoint.model.trim().to_ascii_lowercase()
+        );
+        let (result_rx, task_to_spawn, waits_for_requested_runtime) = {
+            let mut state = TRANSLATION_RUNTIME_RECOVERY_TASK.lock().await;
+            register_runtime_recovery_waiter(&mut state, key, &endpoint)
+        };
+        if let Some((task_id, task_endpoint)) = task_to_spawn {
+            tauri::async_runtime::spawn(async move {
+                let result = ensure_unified_ollama_runtime_inner(&task_endpoint).await;
+                let waiters = {
+                    let mut state = TRANSLATION_RUNTIME_RECOVERY_TASK.lock().await;
+                    match state.active.take() {
+                        Some(active) if active.id == task_id => active.waiters,
+                        Some(active) => {
+                            state.active = Some(active);
+                            Vec::new()
+                        }
+                        None => Vec::new(),
+                    }
+                };
+                for waiter in waiters {
+                    let _ = waiter.send(result.clone());
+                }
+            });
+        }
+        let result = result_rx
+            .await
+            .map_err(|_| "Ollama 自动恢复任务意外结束".to_string())?;
+        if waits_for_requested_runtime {
+            return result;
+        }
+        // 前一个不同地址/generation 的任务结束后，仅启动一个最新任务。
+        ensure_recovery_request_is_current(&endpoint)?;
+    }
+}
+
 fn startup_prewarm_retry_delay(completed_attempts: usize) -> Duration {
     Duration::from_millis(match completed_attempts {
         0 => 250,
@@ -762,7 +938,7 @@ async fn prewarm_translation_endpoint_with_retry(
         if settings.ollama.translation.request_path != endpoint.request_path {
             return Err("Ollama 地址已变更，停止旧地址的启动预热".to_string());
         }
-        match prewarm_translation_endpoint(endpoint).await {
+        match ensure_unified_ollama_runtime(endpoint).await {
             Ok(()) => return Ok(attempt + 1),
             Err(error) if attempt + 1 == STARTUP_PREWARM_MAX_ATTEMPTS => {
                 return Err(format!(
@@ -856,13 +1032,22 @@ pub fn research_is_translation_active() -> bool {
 /// 应用设置页的 Ollama 开关。开启时立即预热翻译模型；关闭时取消生成并卸载模型。
 #[tauri::command]
 pub async fn apply_ollama_runtime_state(enabled: bool) -> Result<TranslationStatus, String> {
+    if enabled != get_settings_v2()?.ollama.enabled {
+        return Err("Ollama 开关状态尚未保存，请先保存设置".to_string());
+    }
+    // 在等待设置事务锁前先推进 generation，确保“关闭”能立即中断较早的 120 秒预热。
+    let requested_epoch = advance_unified_ollama_runtime_intent();
+    let _apply_guard = TRANSLATION_RUNTIME_APPLY_LOCK.lock().await;
     let settings = get_settings_v2()?;
     if enabled != settings.ollama.enabled {
         return Err("Ollama 开关状态尚未保存，请先保存设置".to_string());
     }
+    if current_unified_ollama_runtime_intent() != requested_epoch {
+        return Err("Ollama 开关已有更新的操作，本次旧操作已取消".to_string());
+    }
     if enabled {
         unload_legacy_app_models(&settings.ollama.translation).await;
-        prewarm_translation_endpoint(&settings.ollama.translation).await?;
+        ensure_unified_ollama_runtime(&settings.ollama.translation).await?;
         return research_get_translation_status().await;
     }
 
@@ -873,6 +1058,9 @@ pub async fn apply_ollama_runtime_state(enabled: bool) -> Result<TranslationStat
             }
         });
     }
+    crate::vision_runtime::cancel_all_ollama_vision_requests();
+    // 不等待可能正在启动服务的恢复任务；generation 已使其无法继续预热模型。
+    // 卸载请求在服务尚未就绪时会快速失败，此时也没有模型需要释放。
     unload_generate_model(&settings.ollama.translation).await;
     unload_legacy_app_models(&settings.ollama.translation).await;
     Ok(TranslationStatus {
@@ -1307,6 +1495,13 @@ async fn ollama_http_error(response: Response, action: &str) -> String {
     }
 }
 
+fn should_recover_local_ollama_connection(
+    endpoint: &OllamaEndpointSettings,
+    error: &reqwest::Error,
+) -> bool {
+    is_local_ollama_endpoint(endpoint) && error.is_connect()
+}
+
 async fn translate_selection_with_endpoint(
     endpoint: &OllamaEndpointSettings,
     input: &TranslationSelectionInput,
@@ -1318,13 +1513,55 @@ async fn translate_selection_with_endpoint(
     if cancellation.is_cancelled() {
         return Err("论文划词翻译已取消".to_string());
     }
-    let send_request = client()?
-        .post(format!("{}/api/chat", normalized_host(endpoint)))
-        .json(&request)
-        .send();
-    let mut response = tokio::select! {
-        response = send_request => response.map_err(|error| format!("无法连接本地 Ollama：{error}"))?,
+    let http_client = client()?;
+    let url = format!("{}/api/chat", normalized_host(endpoint));
+    let send_request = http_client.post(&url).json(&request).send();
+    let first_response = tokio::select! {
+        biased;
         _ = cancellation.notify.notified() => return Err("论文划词翻译已取消".to_string()),
+        response = send_request => response,
+    };
+    let mut response = match first_response {
+        Ok(response) => response,
+        Err(error) if should_recover_local_ollama_connection(endpoint, &error) => {
+            warn!("检测到本地 Ollama 已退出，开始自动恢复 request_id={request_id}");
+            send_translation_event(
+                on_event,
+                request_id,
+                "status",
+                "",
+                "Ollama 已退出，正在自动启动本地 AI…",
+            )?;
+            let recovery = ensure_unified_ollama_runtime(endpoint);
+            tokio::select! {
+                biased;
+                _ = cancellation.notify.notified() => {
+                    return Err("论文划词翻译已取消".to_string());
+                }
+                result = recovery => {
+                    result.map_err(|recovery_error| {
+                        format!("本地 Ollama 已退出，自动恢复失败：{recovery_error}")
+                    })?;
+                }
+            }
+            info!("本地 Ollama 与统一模型已自动恢复 request_id={request_id}");
+            if cancellation.is_cancelled() {
+                return Err("论文划词翻译已取消".to_string());
+            }
+            let retry_request = http_client.post(&url).json(&request).send();
+            tokio::select! {
+                biased;
+                _ = cancellation.notify.notified() => {
+                    return Err("论文划词翻译已取消".to_string());
+                }
+                response = retry_request => {
+                    response.map_err(|retry_error| {
+                        format!("自动恢复 Ollama 后仍无法连接：{retry_error}")
+                    })?
+                }
+            }
+        }
+        Err(error) => return Err(format!("无法连接本地 Ollama：{error}")),
     };
     if !response.status().is_success() {
         return Err(ollama_http_error(response, "论文划词翻译").await);
@@ -2050,6 +2287,47 @@ mod tests {
         assert!(!is_foreground_translation_active());
     }
 
+    #[tokio::test]
+    async fn translation_cancel_retains_a_permit_for_the_next_wait_point() {
+        let cancellation = TranslationCancellation::default();
+        cancellation.cancel();
+        tokio::time::timeout(Duration::from_millis(100), cancellation.notify.notified())
+            .await
+            .expect("取消发生在 await 之前时仍必须立即唤醒");
+        assert!(cancellation.is_cancelled());
+    }
+
+    #[test]
+    fn runtime_recovery_registry_shares_one_in_flight_task_and_prunes_cancelled_waiters() {
+        let endpoint = OllamaEndpointSettings::default();
+        let mut state = RuntimeRecoveryTaskState::default();
+        let (first_receiver, first_task, first_matches) =
+            register_runtime_recovery_waiter(&mut state, "epoch-1".to_string(), &endpoint);
+        assert!(first_matches);
+        assert_eq!(first_task.as_ref().map(|(id, _)| *id), Some(1));
+
+        let (second_receiver, second_task, second_matches) =
+            register_runtime_recovery_waiter(&mut state, "epoch-1".to_string(), &endpoint);
+        assert!(second_matches);
+        assert!(second_task.is_none());
+
+        let (old_epoch_receiver, old_epoch_task, old_epoch_matches) =
+            register_runtime_recovery_waiter(&mut state, "epoch-2".to_string(), &endpoint);
+        assert!(!old_epoch_matches);
+        assert!(old_epoch_task.is_none());
+        assert_eq!(state.active.as_ref().unwrap().waiters.len(), 3);
+
+        drop(second_receiver);
+        drop(old_epoch_receiver);
+        let (_latest_receiver, latest_task, latest_matches) =
+            register_runtime_recovery_waiter(&mut state, "epoch-1".to_string(), &endpoint);
+        assert!(latest_matches);
+        assert!(latest_task.is_none());
+        // 首个仍在等待，两个已取消接收端被清理，再加入最新等待者。
+        assert_eq!(state.active.as_ref().unwrap().waiters.len(), 2);
+        drop(first_receiver);
+    }
+
     fn test_translation_endpoint(request_path: String) -> OllamaEndpointSettings {
         OllamaEndpointSettings {
             request_path,
@@ -2239,6 +2517,25 @@ mod tests {
         assert_eq!(startup_prewarm_retry_delay(3), Duration::from_secs(2));
         assert_eq!(startup_prewarm_retry_delay(4), Duration::from_secs(5));
         assert_eq!(startup_prewarm_retry_delay(100), Duration::from_secs(5));
+    }
+
+    #[tokio::test]
+    async fn only_local_connection_refusal_triggers_automatic_runtime_recovery() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let error = client()
+            .unwrap()
+            .get(format!("http://{address}/api/chat"))
+            .send()
+            .await
+            .unwrap_err();
+        assert!(error.is_connect());
+
+        let local = test_translation_endpoint(format!("http://{address}"));
+        let remote = test_translation_endpoint("https://ollama.example.test".to_string());
+        assert!(should_recover_local_ollama_connection(&local, &error));
+        assert!(!should_recover_local_ollama_connection(&remote, &error));
     }
 
     #[test]
