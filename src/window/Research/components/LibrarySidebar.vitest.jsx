@@ -17,6 +17,7 @@ const insight = {
 
 describe('小允论文阅读器侧栏', () => {
     it('在论文库中创建、筛选、编辑并删除项目', async () => {
+        const onViewChange = vi.fn();
         const onProjectChange = vi.fn();
         const onCreateProject = vi.fn().mockResolvedValue({ id: 'new-project' });
         const onUpdateProject = vi.fn().mockResolvedValue(undefined);
@@ -29,11 +30,11 @@ describe('小允论文阅读器侧栏', () => {
                 query=''
                 onQueryChange={() => {}}
                 view='all'
-                onViewChange={() => {}}
+                onViewChange={onViewChange}
                 tags={[]}
                 activeTagId=''
                 onTagChange={() => {}}
-                paperCounts={{ all: 3, tagged: 1, trash: 0, unclassified: 1 }}
+                paperCounts={{ all: 3, tagged: 1, archive: 2, trash: 0, unclassified: 1 }}
                 projects={[{ id: 'project-1', name: '代谢组学', color: '#8170df', paperCount: 2 }]}
                 activeProjectId='project-1'
                 onProjectChange={onProjectChange}
@@ -44,6 +45,9 @@ describe('小允论文阅读器侧栏', () => {
         );
 
         expect(screen.getByRole('button', { name: '代谢组学' }).getAttribute('class')).toContain('is-active');
+        fireEvent.click(screen.getByRole('button', { name: /已归档/u }));
+        expect(onViewChange).toHaveBeenCalledWith('archive');
+        expect(screen.getByRole('button', { name: /已归档/u }).textContent).toContain('2');
         fireEvent.click(screen.getByRole('button', { name: '未分类' }));
         expect(onProjectChange).toHaveBeenCalledWith('__unclassified__');
 

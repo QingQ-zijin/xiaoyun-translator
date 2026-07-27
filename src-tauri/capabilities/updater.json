@@ -1,0 +1,13 @@
+{
+    "identifier": "main-updater",
+    "description": "仅允许主窗口检查、下载并安装经过签名的小允翻译更新",
+    "local": true,
+    "windows": [
+        "main"
+    ],
+    "permissions": [
+        "updater:allow-check",
+        "updater:allow-download-and-install",
+        "process:allow-restart"
+    ]
+}

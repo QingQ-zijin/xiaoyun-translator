@@ -20,7 +20,14 @@ export function filterPapers(papers, { query = '', view = 'all', tagId = '', pro
     const normalizedQuery = normalizeSearchText(query);
     return (Array.isArray(papers) ? papers : []).filter((paper) => {
         const isTrashed = Boolean(paper.trashedAt);
-        if (view === 'trash' ? !isTrashed : isTrashed) return false;
+        const isArchived = !isTrashed && Boolean(paper.archivedAt);
+        if (view === 'trash') {
+            if (!isTrashed) return false;
+        } else if (view === 'archive') {
+            if (!isArchived) return false;
+        } else if (isTrashed || isArchived) {
+            return false;
+        }
         if (view === 'tagged' && !(paper.tags?.length > 0)) return false;
         if (tagId && !paper.tags?.some((tag) => String(tag.id) === String(tagId))) return false;
         if (projectId === UNCLASSIFIED_PROJECT_ID && paper.projects?.length > 0) return false;

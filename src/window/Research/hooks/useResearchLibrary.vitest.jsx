@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const bridge = vi.hoisted(() => ({
+    archivePapers: vi.fn(),
     createProject: vi.fn(),
     deletePaperPermanently: vi.fn(),
     deleteProject: vi.fn(),
@@ -9,10 +10,13 @@ const bridge = vi.hoisted(() => ({
     listPapers: vi.fn(),
     listProjects: vi.fn(),
     listTags: vi.fn(),
+    movePapersToTrash: vi.fn(),
     movePaperToTrash: vi.fn(),
+    restorePapers: vi.fn(),
     restorePaper: vi.fn(),
     setPaperProjects: vi.fn(),
     setPaperTags: vi.fn(),
+    unarchivePapers: vi.fn(),
     updateProject: vi.fn(),
 }));
 
@@ -31,6 +35,10 @@ describe('论文库项目数据流', () => {
         bridge.listProjects.mockResolvedValue([{ id: 'project-1', name: '代谢', color: '#8170df' }]);
         bridge.createProject.mockResolvedValue({ id: 'project-2', name: '蛋白质组学' });
         bridge.importPapers.mockResolvedValue([{ id: 'book-1', title: 'Chaos', contentKind: 'book' }]);
+        bridge.archivePapers.mockResolvedValue(['paper-1']);
+        bridge.unarchivePapers.mockResolvedValue(['paper-1']);
+        bridge.movePapersToTrash.mockResolvedValue(['paper-1']);
+        bridge.restorePapers.mockResolvedValue(['paper-1']);
         bridge.updateProject.mockResolvedValue({ id: 'project-1', name: '代谢网络' });
         bridge.setPaperProjects.mockResolvedValue([{ id: 'project-1', name: '代谢', color: '#8170df' }]);
     });
@@ -83,5 +91,41 @@ describe('论文库项目数据流', () => {
         await act(() => result.current.importPaths(['C:\\Books\\chaos.pdf'], 'book'));
 
         expect(bridge.importPapers).toHaveBeenCalledWith(['C:\\Books\\chaos.pdf'], 'book');
+    });
+
+    it('批量归档、取消归档、移到回收站和恢复均只提交一次并刷新列表', async () => {
+        const { result } = renderHook(() => useResearchLibrary());
+        await waitFor(() => expect(result.current.loading).toBe(false));
+
+        await act(() => result.current.archivePapers(['paper-1']));
+        await act(() => result.current.unarchivePapers(['paper-1']));
+        await act(() => result.current.movePapersToTrash(['paper-1']));
+        await act(() => result.current.restorePapers(['paper-1']));
+
+        expect(bridge.archivePapers).toHaveBeenCalledOnce();
+        expect(bridge.archivePapers).toHaveBeenCalledWith(['paper-1']);
+        expect(bridge.unarchivePapers).toHaveBeenCalledWith(['paper-1']);
+        expect(bridge.movePapersToTrash).toHaveBeenCalledWith(['paper-1']);
+        expect(bridge.restorePapers).toHaveBeenCalledWith(['paper-1']);
+        expect(bridge.listPapers).toHaveBeenCalledTimes(5);
+    });
+
+    it('批量操作失败会保留错误并继续向界面抛出', async () => {
+        bridge.archivePapers.mockRejectedValueOnce(new Error('归档事务失败'));
+        const { result } = renderHook(() => useResearchLibrary());
+        await waitFor(() => expect(result.current.loading).toBe(false));
+        let caught;
+
+        await act(async () => {
+            try {
+                await result.current.archivePapers(['paper-1']);
+            } catch (reason) {
+                caught = reason;
+            }
+        });
+
+        expect(caught).toMatchObject({ message: '归档事务失败' });
+        expect(result.current.error).toContain('归档事务失败');
+        expect(bridge.listPapers).toHaveBeenCalledOnce();
     });
 });

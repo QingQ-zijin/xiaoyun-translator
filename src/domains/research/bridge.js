@@ -17,6 +17,7 @@ const createId = (prefix) => `${prefix}-${globalThis.crypto?.randomUUID?.() ?? `
 const DOCUMENT_EXTENSIONS = Object.freeze(['pdf', 'md', 'markdown', 'docx', 'tex']);
 const DOCUMENT_EXTENSION_PATTERN = /\.(?:pdf|md|markdown|docx|tex)$/iu;
 const DOCUMENT_INDEX_BATCH_SIZE = 32;
+const MAX_PAPER_BATCH_SIZE = 500;
 
 export function normalizeContentKind(value) {
     return String(value ?? '')
@@ -47,6 +48,8 @@ function normalizeDemoPaper(paper) {
         textContent: String(paper?.textContent ?? ''),
         importWarning: String(paper?.importWarning ?? ''),
         sourcePath: String(paper?.sourcePath ?? paper?.path ?? ''),
+        archivedAt: paper?.archivedAt ?? null,
+        trashedAt: paper?.trashedAt ?? null,
         projects: paper?.projects ?? [],
     };
 }
@@ -95,9 +98,44 @@ async function invokeResearch(command, args = {}) {
 
 export async function listPapers({ includeTrashed = true } = {}) {
     if (!isTauriRuntime()) {
-        return clone(includeTrashed ? demoPapers : demoPapers.filter((paper) => !paper.trashedAt));
+        return clone(includeTrashed ? demoPapers : demoPapers.filter((paper) => !paper.trashedAt && !paper.archivedAt));
     }
     return invokeResearch('research_list_papers', { includeTrashed });
+}
+
+function normalizePaperIds(paperIds) {
+    if (!Array.isArray(paperIds) || paperIds.length === 0) throw new Error('至少选择一篇论文');
+    const normalized = [];
+    const seen = new Set();
+    for (const value of paperIds) {
+        const paperId = String(value ?? '').trim();
+        if (!paperId) throw new Error('论文 ID 不能为空');
+        if (!seen.has(paperId)) {
+            seen.add(paperId);
+            normalized.push(paperId);
+            if (normalized.length > MAX_PAPER_BATCH_SIZE) {
+                throw new Error(`每次最多批量处理 ${MAX_PAPER_BATCH_SIZE} 篇论文`);
+            }
+        }
+    }
+    return normalized;
+}
+
+function updateDemoPaperLifecycle(paperIds, transition) {
+    const normalized = normalizePaperIds(paperIds);
+    const existingIds = new Set(demoPapers.map((paper) => String(paper.id)));
+    const missingId = normalized.find((paperId) => !existingIds.has(paperId));
+    if (missingId) throw new Error(`论文不存在：${missingId}`);
+    const selectedIds = new Set(normalized);
+    const timestamp = now();
+    demoPapers = demoPapers.map((paper) => {
+        if (!selectedIds.has(String(paper.id))) return paper;
+        if (transition === 'archive') return { ...paper, archivedAt: timestamp, trashedAt: null, updatedAt: timestamp };
+        if (transition === 'trash') return { ...paper, archivedAt: null, trashedAt: timestamp, updatedAt: timestamp };
+        return { ...paper, archivedAt: null, trashedAt: null, updatedAt: timestamp };
+    });
+    updateDemoProjectCounts();
+    return clone(normalized);
 }
 
 function validateProjectInput({ name, color = '#7664e9', description = '' }) {
@@ -126,7 +164,10 @@ function updateDemoProjectCounts() {
     demoProjects = demoProjects.map((project) => ({
         ...project,
         paperCount: demoPapers.filter(
-            (paper) => !paper.trashedAt && paper.projects?.some((candidate) => candidate.id === project.id)
+            (paper) =>
+                !paper.trashedAt &&
+                !paper.archivedAt &&
+                paper.projects?.some((candidate) => candidate.id === project.id)
         ).length,
     }));
     demoPapers = demoPapers.map((paper) => ({
@@ -265,12 +306,36 @@ export async function importPapers(paths, contentKind = 'paper') {
 
 export async function movePaperToTrash(paperId) {
     if (isTauriRuntime()) return invokeResearch('research_move_to_trash', { paperId });
-    demoPapers = demoPapers.map((paper) => (paper.id === paperId ? { ...paper, trashedAt: now() } : paper));
+    updateDemoPaperLifecycle([paperId], 'trash');
 }
 
 export async function restorePaper(paperId) {
     if (isTauriRuntime()) return invokeResearch('research_restore_paper', { paperId });
-    demoPapers = demoPapers.map((paper) => (paper.id === paperId ? { ...paper, trashedAt: null } : paper));
+    updateDemoPaperLifecycle([paperId], 'restore');
+}
+
+export async function archivePapers(paperIds) {
+    const normalized = normalizePaperIds(paperIds);
+    if (isTauriRuntime()) return invokeResearch('research_archive_papers', { paperIds: normalized });
+    return updateDemoPaperLifecycle(normalized, 'archive');
+}
+
+export async function unarchivePapers(paperIds) {
+    const normalized = normalizePaperIds(paperIds);
+    if (isTauriRuntime()) return invokeResearch('research_unarchive_papers', { paperIds: normalized });
+    return updateDemoPaperLifecycle(normalized, 'unarchive');
+}
+
+export async function movePapersToTrash(paperIds) {
+    const normalized = normalizePaperIds(paperIds);
+    if (isTauriRuntime()) return invokeResearch('research_move_papers_to_trash', { paperIds: normalized });
+    return updateDemoPaperLifecycle(normalized, 'trash');
+}
+
+export async function restorePapers(paperIds) {
+    const normalized = normalizePaperIds(paperIds);
+    if (isTauriRuntime()) return invokeResearch('research_restore_papers', { paperIds: normalized });
+    return updateDemoPaperLifecycle(normalized, 'restore');
 }
 
 export async function deletePaperPermanently(paperId) {

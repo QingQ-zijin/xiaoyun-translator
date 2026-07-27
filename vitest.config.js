@@ -16,6 +16,7 @@ export default defineConfig({
                 'src/window/Research/pdfInteractions.js',
                 'src/window/Main/navigation.js',
                 'src/window/Main/settings.js',
+                'src/window/Main/useAppUpdater.js',
             ],
             thresholds: {
                 lines: 90,

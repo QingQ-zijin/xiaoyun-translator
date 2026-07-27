@@ -96,6 +96,8 @@ fn main() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if should_exit_for_window(window.label()) {
@@ -164,6 +166,10 @@ fn main() {
             research_import_papers,
             research_move_to_trash,
             research_restore_paper,
+            research_archive_papers,
+            research_unarchive_papers,
+            research_move_papers_to_trash,
+            research_restore_papers,
             research_delete_paper_permanently,
             research_list_tags,
             research_create_tag,

@@ -36,6 +36,7 @@ const MAX_DOCUMENT_OUTLINE_ITEMS: usize = 4_096;
 const MAX_DOCUMENT_OUTLINE_TITLE_CHARACTERS: usize = 500;
 const MAX_DOCUMENT_OUTLINE_LEVEL: i64 = 8;
 const MAX_DOCUMENT_OUTLINE_SOURCE_CHARACTERS: usize = 32;
+const MAX_PAPER_BATCH_SIZE: usize = 500;
 const TEX_COMPILE_TIMEOUT: Duration = Duration::from_secs(90);
 static IMPORT_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
@@ -95,6 +96,7 @@ pub struct Paper {
     pub page_count: i64,
     pub updated_at: String,
     pub trashed_at: Option<String>,
+    pub archived_at: Option<String>,
     pub source_format: String,
     pub document_type: String,
     pub content_kind: String,
@@ -330,7 +332,8 @@ fn initialise_schema(connection: &Connection) -> Result<(), String> {
                 text_index_complete INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
-                trashed_at TEXT
+                trashed_at TEXT,
+                archived_at TEXT
             );
 
             CREATE TABLE IF NOT EXISTS tags (
@@ -495,6 +498,7 @@ fn initialise_schema(connection: &Connection) -> Result<(), String> {
             "#,
         )
         .map_err(|error| format!("初始化 research.db 失败：{error}"))?;
+    migrate_paper_lifecycle_schema(connection)?;
     migrate_search_schema(connection)?;
     migrate_reference_schema(connection)?;
     migrate_document_schema(connection)?;
@@ -506,6 +510,45 @@ fn initialise_schema(connection: &Connection) -> Result<(), String> {
             )
             .map_err(|error| error.to_string())?;
     }
+    Ok(())
+}
+
+/// 为已有论文库补齐独立归档状态。归档与回收站是两个不同生命周期，
+/// 所有公开写命令都会在进入其中一个状态时清除另一个状态。
+fn migrate_paper_lifecycle_schema(connection: &Connection) -> Result<(), String> {
+    let has_archived_at = connection
+        .prepare("PRAGMA table_info(papers)")
+        .and_then(|mut statement| {
+            let columns = statement
+                .query_map([], |row| row.get::<_, String>(1))?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(columns.iter().any(|column| column == "archived_at"))
+        })
+        .map_err(|error| error.to_string())?;
+    if !has_archived_at {
+        connection
+            .execute("ALTER TABLE papers ADD COLUMN archived_at TEXT", [])
+            .map_err(|error| format!("迁移论文归档字段失败：{error}"))?;
+    }
+    connection
+        .execute_batch(
+            r#"
+            CREATE TRIGGER IF NOT EXISTS papers_lifecycle_insert_guard
+            BEFORE INSERT ON papers
+            WHEN NEW.archived_at IS NOT NULL AND NEW.trashed_at IS NOT NULL
+            BEGIN
+                SELECT RAISE(ABORT, '论文不能同时处于归档和回收站');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS papers_lifecycle_update_guard
+            BEFORE UPDATE OF archived_at, trashed_at ON papers
+            WHEN NEW.archived_at IS NOT NULL AND NEW.trashed_at IS NOT NULL
+            BEGIN
+                SELECT RAISE(ABORT, '论文不能同时处于归档和回收站');
+            END;
+            "#,
+        )
+        .map_err(|error| format!("创建论文生命周期约束失败：{error}"))?;
     Ok(())
 }
 
@@ -1252,6 +1295,7 @@ fn paper_base_from_row(row: &Row<'_>) -> rusqlite::Result<(Paper, String)> {
             page_count: row.get(5)?,
             updated_at: row.get(6)?,
             trashed_at: row.get(7)?,
+            archived_at: row.get(18)?,
             source_format: row.get(10)?,
             document_type: row.get(11)?,
             content_kind: row.get(12)?,
@@ -1270,7 +1314,7 @@ const PAPER_SELECT: &str = r#"
            p.updated_at, p.trashed_at, p.managed_path, p.original_filename,
            p.source_format, p.document_type, p.content_kind, p.import_warning, p.tex_compiler,
            COALESCE(r.page_number, 1), COALESCE(r.scale, 1.25),
-           COALESCE(r.scroll_ratio, 0)
+           COALESCE(r.scroll_ratio, 0), p.archived_at
     FROM papers p
     LEFT JOIN reading_progress r ON r.paper_id = p.id
 "#;
@@ -1310,7 +1354,10 @@ fn project_from_row(row: &Row<'_>) -> rusqlite::Result<Project> {
 
 const PROJECT_SELECT: &str = r#"
     SELECT pr.id, pr.name, pr.color, pr.description,
-           COUNT(CASE WHEN p.id IS NOT NULL AND p.trashed_at IS NULL THEN 1 END) AS paper_count,
+           COUNT(CASE WHEN p.id IS NOT NULL
+                           AND p.trashed_at IS NULL
+                           AND p.archived_at IS NULL
+                      THEN 1 END) AS paper_count,
            pr.created_at, pr.updated_at
     FROM projects pr
     LEFT JOIN project_papers pp ON pp.project_id = pr.id
@@ -1419,7 +1466,7 @@ fn import_one_with_content_kind(
         connection
             .execute(
                 "UPDATE papers
-                 SET trashed_at = NULL, updated_at = ?2,
+                 SET trashed_at = NULL, archived_at = NULL, updated_at = ?2,
                      content_kind = COALESCE(?3, content_kind)
                  WHERE id = ?1",
                 params![existing_id, timestamp, content_kind],
@@ -1563,7 +1610,7 @@ fn list_papers_on(connection: &Connection, include_trashed: bool) -> Result<Vec<
     let where_clause = if include_trashed {
         ""
     } else {
-        " WHERE p.trashed_at IS NULL"
+        " WHERE p.trashed_at IS NULL AND p.archived_at IS NULL"
     };
     let query = format!(
         "{PAPER_SELECT}{where_clause} \
@@ -1633,30 +1680,116 @@ fn import_papers_blocking(
 #[tauri::command]
 pub fn research_move_to_trash(paper_id: String) -> Result<(), String> {
     with_database(|connection| {
-        let changed = connection
-            .execute(
-                "UPDATE papers SET trashed_at = ?2, updated_at = ?2 WHERE id = ?1",
-                params![paper_id, now()],
-            )
-            .map_err(|error| error.to_string())?;
-        (changed == 1)
-            .then_some(())
-            .ok_or_else(|| "论文不存在".to_string())
+        transition_papers_on(connection, vec![paper_id], PaperLifecycleTransition::Trash)
+            .map(|_| ())
     })
 }
 
 #[tauri::command]
 pub fn research_restore_paper(paper_id: String) -> Result<(), String> {
     with_database(|connection| {
-        let changed = connection
-            .execute(
-                "UPDATE papers SET trashed_at = NULL, updated_at = ?2 WHERE id = ?1",
-                params![paper_id, now()],
-            )
+        transition_papers_on(
+            connection,
+            vec![paper_id],
+            PaperLifecycleTransition::Restore,
+        )
+        .map(|_| ())
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PaperLifecycleTransition {
+    Archive,
+    Unarchive,
+    Trash,
+    Restore,
+}
+
+fn normalize_paper_ids(paper_ids: Vec<String>) -> Result<Vec<String>, String> {
+    if paper_ids.is_empty() {
+        return Err("至少选择一篇论文".to_string());
+    }
+    let mut seen = BTreeSet::new();
+    let mut normalized = Vec::with_capacity(paper_ids.len());
+    for paper_id in paper_ids {
+        let paper_id = paper_id.trim();
+        if paper_id.is_empty() {
+            return Err("论文 ID 不能为空".to_string());
+        }
+        if seen.insert(paper_id.to_string()) {
+            normalized.push(paper_id.to_string());
+            if normalized.len() > MAX_PAPER_BATCH_SIZE {
+                return Err(format!("每次最多批量处理 {MAX_PAPER_BATCH_SIZE} 篇论文"));
+            }
+        }
+    }
+    Ok(normalized)
+}
+
+fn transition_papers_on(
+    connection: &mut Connection,
+    paper_ids: Vec<String>,
+    transition: PaperLifecycleTransition,
+) -> Result<Vec<String>, String> {
+    let paper_ids = normalize_paper_ids(paper_ids)?;
+    let timestamp = now();
+    let sql = match transition {
+        PaperLifecycleTransition::Archive => {
+            "UPDATE papers
+             SET archived_at = ?2, trashed_at = NULL, updated_at = ?2
+             WHERE id = ?1"
+        }
+        PaperLifecycleTransition::Unarchive | PaperLifecycleTransition::Restore => {
+            "UPDATE papers
+             SET archived_at = NULL, trashed_at = NULL, updated_at = ?2
+             WHERE id = ?1"
+        }
+        PaperLifecycleTransition::Trash => {
+            "UPDATE papers
+             SET trashed_at = ?2, archived_at = NULL, updated_at = ?2
+             WHERE id = ?1"
+        }
+    };
+    let transaction = connection
+        .transaction()
+        .map_err(|error| error.to_string())?;
+    for paper_id in &paper_ids {
+        let changed = transaction
+            .execute(sql, params![paper_id, timestamp])
             .map_err(|error| error.to_string())?;
-        (changed == 1)
-            .then_some(())
-            .ok_or_else(|| "论文不存在".to_string())
+        if changed != 1 {
+            return Err(format!("论文不存在：{paper_id}"));
+        }
+    }
+    transaction.commit().map_err(|error| error.to_string())?;
+    Ok(paper_ids)
+}
+
+#[tauri::command]
+pub fn research_archive_papers(paper_ids: Vec<String>) -> Result<Vec<String>, String> {
+    with_database(|connection| {
+        transition_papers_on(connection, paper_ids, PaperLifecycleTransition::Archive)
+    })
+}
+
+#[tauri::command]
+pub fn research_unarchive_papers(paper_ids: Vec<String>) -> Result<Vec<String>, String> {
+    with_database(|connection| {
+        transition_papers_on(connection, paper_ids, PaperLifecycleTransition::Unarchive)
+    })
+}
+
+#[tauri::command]
+pub fn research_move_papers_to_trash(paper_ids: Vec<String>) -> Result<Vec<String>, String> {
+    with_database(|connection| {
+        transition_papers_on(connection, paper_ids, PaperLifecycleTransition::Trash)
+    })
+}
+
+#[tauri::command]
+pub fn research_restore_papers(paper_ids: Vec<String>) -> Result<Vec<String>, String> {
+    with_database(|connection| {
+        transition_papers_on(connection, paper_ids, PaperLifecycleTransition::Restore)
     })
 }
 
@@ -3012,7 +3145,11 @@ struct StoredReference {
 
 fn resolve_all_reference_matches(connection: &mut Connection) -> Result<(), String> {
     let candidates = connection
-        .prepare("SELECT id, title, normalized_title, doi FROM papers WHERE trashed_at IS NULL")
+        .prepare(
+            "SELECT id, title, normalized_title, doi
+             FROM papers
+             WHERE trashed_at IS NULL AND archived_at IS NULL",
+        )
         .and_then(|mut statement| {
             statement
                 .query_map([], |row| {
@@ -3125,7 +3262,8 @@ fn list_paper_relations_on(
              JOIN papers target ON target.id = pr.target_paper_id
              WHERE (pr.source_paper_id = ?1 OR pr.target_paper_id = ?1)
                AND pr.confidence >= ?2
-               AND source.trashed_at IS NULL AND target.trashed_at IS NULL
+               AND source.trashed_at IS NULL AND source.archived_at IS NULL
+               AND target.trashed_at IS NULL AND target.archived_at IS NULL
              ORDER BY pr.updated_at DESC, pr.entry_index",
         )
         .map_err(|error| error.to_string())?;
@@ -4361,6 +4499,148 @@ mod tests {
     }
 
     #[test]
+    fn paper_batch_lifecycle_is_atomic_normalized_and_mutually_exclusive() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        initialise_schema(&connection).unwrap();
+        insert_reference_test_paper(&connection, "paper-a", "论文 A", "");
+        insert_reference_test_paper(&connection, "paper-b", "论文 B", "");
+
+        let archived = transition_papers_on(
+            &mut connection,
+            vec![
+                " paper-a ".to_string(),
+                "paper-a".to_string(),
+                "paper-b".to_string(),
+            ],
+            PaperLifecycleTransition::Archive,
+        )
+        .unwrap();
+        assert_eq!(archived, ["paper-a", "paper-b"]);
+        assert!(list_papers_on(&connection, false).unwrap().is_empty());
+        assert_eq!(list_papers_on(&connection, true).unwrap().len(), 2);
+
+        let archived_paper = load_paper(&connection, "paper-a").unwrap().0;
+        assert!(archived_paper.archived_at.is_some());
+        assert!(archived_paper.trashed_at.is_none());
+        let serialized = serde_json::to_value(&archived_paper).unwrap();
+        assert!(serialized["archivedAt"].is_string());
+        assert!(serialized.get("archived_at").is_none());
+
+        transition_papers_on(
+            &mut connection,
+            vec!["paper-a".to_string()],
+            PaperLifecycleTransition::Trash,
+        )
+        .unwrap();
+        let trashed_paper = load_paper(&connection, "paper-a").unwrap().0;
+        assert!(trashed_paper.archived_at.is_none());
+        assert!(trashed_paper.trashed_at.is_some());
+
+        transition_papers_on(
+            &mut connection,
+            vec!["paper-a".to_string()],
+            PaperLifecycleTransition::Archive,
+        )
+        .unwrap();
+        let rearchived_paper = load_paper(&connection, "paper-a").unwrap().0;
+        assert!(rearchived_paper.archived_at.is_some());
+        assert!(rearchived_paper.trashed_at.is_none());
+
+        transition_papers_on(
+            &mut connection,
+            vec!["paper-a".to_string(), "paper-b".to_string()],
+            PaperLifecycleTransition::Restore,
+        )
+        .unwrap();
+        assert_eq!(list_papers_on(&connection, false).unwrap().len(), 2);
+
+        let missing_error = transition_papers_on(
+            &mut connection,
+            vec!["paper-a".to_string(), "missing".to_string()],
+            PaperLifecycleTransition::Archive,
+        )
+        .unwrap_err();
+        assert!(missing_error.contains("missing"));
+        let rolled_back = load_paper(&connection, "paper-a").unwrap().0;
+        assert!(rolled_back.archived_at.is_none());
+        assert!(rolled_back.trashed_at.is_none());
+        assert!(connection
+            .execute(
+                "UPDATE papers
+                 SET archived_at = 'archived', trashed_at = 'trashed'
+                 WHERE id = 'paper-a'",
+                [],
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("不能同时"));
+
+        assert!(transition_papers_on(
+            &mut connection,
+            Vec::new(),
+            PaperLifecycleTransition::Archive
+        )
+        .unwrap_err()
+        .contains("至少选择"));
+        assert!(transition_papers_on(
+            &mut connection,
+            vec!["  ".to_string()],
+            PaperLifecycleTransition::Archive
+        )
+        .unwrap_err()
+        .contains("不能为空"));
+        assert_eq!(
+            normalize_paper_ids(vec![" paper-a ".to_string(); MAX_PAPER_BATCH_SIZE + 1]).unwrap(),
+            ["paper-a"]
+        );
+        let oversized = (0..=MAX_PAPER_BATCH_SIZE)
+            .map(|index| format!("paper-{index}"))
+            .collect();
+        assert!(transition_papers_on(
+            &mut connection,
+            oversized,
+            PaperLifecycleTransition::Archive
+        )
+        .unwrap_err()
+        .contains("最多"));
+    }
+
+    #[test]
+    fn archived_papers_are_excluded_from_project_counts_until_restored() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        initialise_schema(&connection).unwrap();
+        insert_reference_test_paper(&connection, "paper-one", "Paper One", "");
+        let project = create_project_on(&mut connection, "归档计数", "#aabbcc", "").unwrap();
+        set_paper_projects_on(&mut connection, "paper-one", vec![project.id.clone()]).unwrap();
+        assert_eq!(
+            load_project(&connection, &project.id).unwrap().paper_count,
+            1
+        );
+
+        transition_papers_on(
+            &mut connection,
+            vec!["paper-one".to_string()],
+            PaperLifecycleTransition::Archive,
+        )
+        .unwrap();
+        assert_eq!(
+            load_project(&connection, &project.id).unwrap().paper_count,
+            0
+        );
+
+        transition_papers_on(
+            &mut connection,
+            vec!["paper-one".to_string()],
+            PaperLifecycleTransition::Unarchive,
+        )
+        .unwrap();
+        assert_eq!(
+            load_project(&connection, &project.id).unwrap().paper_count,
+            1
+        );
+    }
+
+    #[test]
     fn reading_progress_rejects_invalid_values_and_tracks_page_count_changes() {
         let mut connection = Connection::open_in_memory().unwrap();
         initialise_schema(&connection).unwrap();
@@ -4458,6 +4738,7 @@ mod tests {
             "import_warning",
             "tex_compiler",
             "text_index_complete",
+            "archived_at",
         ] {
             assert!(columns.iter().any(|column| column == expected));
         }
@@ -4732,8 +5013,26 @@ mod tests {
         initialise_schema(&connection).unwrap();
 
         let first = import_one(&mut connection, &source, &managed).unwrap();
+        transition_papers_on(
+            &mut connection,
+            vec![first.id.clone()],
+            PaperLifecycleTransition::Archive,
+        )
+        .unwrap();
         let second = import_one(&mut connection, &source, &managed).unwrap();
         assert_eq!(first.id, second.id);
+        assert!(second.archived_at.is_none());
+        assert!(second.trashed_at.is_none());
+        transition_papers_on(
+            &mut connection,
+            vec![first.id.clone()],
+            PaperLifecycleTransition::Trash,
+        )
+        .unwrap();
+        let third = import_one(&mut connection, &source, &managed).unwrap();
+        assert_eq!(first.id, third.id);
+        assert!(third.archived_at.is_none());
+        assert!(third.trashed_at.is_none());
         let count: i64 = connection
             .query_row("SELECT COUNT(*) FROM papers", [], |row| row.get(0))
             .unwrap();

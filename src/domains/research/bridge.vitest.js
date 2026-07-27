@@ -25,6 +25,7 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({ open: mocks.openDialog }));
 vi.mock('../translation', () => ({ synthesizeSpeech: mocks.synthesizeSpeech }));
 
 import {
+    archivePapers,
     cancelPaperInsights,
     choosePdfPaths,
     createProject,
@@ -45,10 +46,13 @@ import {
     listPapers,
     listPendingPaperInsights,
     listProjects,
+    movePapersToTrash,
+    restorePapers,
     setPaperProjects,
     subscribeToDocumentDrops,
     subscribeToPdfDrops,
     translateSelection,
+    unarchivePapers,
     updateProject,
 } from './bridge';
 
@@ -337,6 +341,76 @@ describe('多格式文献导入 bridge', () => {
 
         expect(callback).toHaveBeenCalledWith(['a.pdf', 'b.md', 'c.markdown', 'd.docx', 'e.TEX']);
         expect(subscribeToPdfDrops).toBe(subscribeToDocumentDrops);
+    });
+});
+
+describe('论文批量生命周期 bridge', () => {
+    it('规范化并去重 ID，且每种批量操作只调用一次后端命令', async () => {
+        mocks.invoke.mockImplementation((_command, { paperIds }) => Promise.resolve(paperIds));
+
+        await expect(archivePapers([' paper-a ', 'paper-a', 'paper-b'])).resolves.toEqual(['paper-a', 'paper-b']);
+        await expect(unarchivePapers(['paper-a', 'paper-b'])).resolves.toEqual(['paper-a', 'paper-b']);
+        await expect(movePapersToTrash(['paper-a', 'paper-b'])).resolves.toEqual(['paper-a', 'paper-b']);
+        await expect(restorePapers(['paper-a', 'paper-b'])).resolves.toEqual(['paper-a', 'paper-b']);
+
+        expect(mocks.invoke).toHaveBeenNthCalledWith(1, 'research_archive_papers', {
+            paperIds: ['paper-a', 'paper-b'],
+        });
+        expect(mocks.invoke).toHaveBeenNthCalledWith(2, 'research_unarchive_papers', {
+            paperIds: ['paper-a', 'paper-b'],
+        });
+        expect(mocks.invoke).toHaveBeenNthCalledWith(3, 'research_move_papers_to_trash', {
+            paperIds: ['paper-a', 'paper-b'],
+        });
+        expect(mocks.invoke).toHaveBeenNthCalledWith(4, 'research_restore_papers', {
+            paperIds: ['paper-a', 'paper-b'],
+        });
+    });
+
+    it('先去重再限制批次，并在 IPC 前拒绝空 ID、空批次和超大批次', async () => {
+        mocks.invoke.mockImplementation((_command, { paperIds }) => Promise.resolve(paperIds));
+        await expect(archivePapers(Array.from({ length: 501 }, () => ' paper-a '))).resolves.toEqual(['paper-a']);
+        expect(mocks.invoke).toHaveBeenCalledOnce();
+        mocks.invoke.mockClear();
+
+        await expect(archivePapers([])).rejects.toThrow('至少选择');
+        await expect(archivePapers(['paper-a', '  '])).rejects.toThrow('不能为空');
+        await expect(archivePapers(Array.from({ length: 501 }, (_, index) => `paper-${index}`))).rejects.toThrow(
+            '最多批量处理 500'
+        );
+        expect(mocks.invoke).not.toHaveBeenCalled();
+    });
+
+    it('演示模式保持归档与回收站互斥，并在缺失 ID 时整批不修改', async () => {
+        delete window.__TAURI_INTERNALS__;
+        try {
+            await expect(archivePapers([' demo-memory ', 'demo-memory'])).resolves.toEqual(['demo-memory']);
+            let paper = (await listPapers()).find((candidate) => candidate.id === 'demo-memory');
+            expect(paper.archivedAt).toBeTruthy();
+            expect(paper.trashedAt).toBeNull();
+            expect((await listPapers({ includeTrashed: false })).some((candidate) => candidate.id === paper.id)).toBe(
+                false
+            );
+
+            await movePapersToTrash(['demo-memory']);
+            paper = (await listPapers()).find((candidate) => candidate.id === 'demo-memory');
+            expect(paper.archivedAt).toBeNull();
+            expect(paper.trashedAt).toBeTruthy();
+
+            await restorePapers(['demo-memory']);
+            await expect(archivePapers(['demo-memory', 'missing-paper'])).rejects.toThrow('missing-paper');
+            paper = (await listPapers()).find((candidate) => candidate.id === 'demo-memory');
+            expect(paper.archivedAt).toBeNull();
+            expect(paper.trashedAt).toBeNull();
+
+            await archivePapers(['demo-memory']);
+            await unarchivePapers(['demo-memory']);
+            paper = (await listPapers()).find((candidate) => candidate.id === 'demo-memory');
+            expect(paper.archivedAt).toBeNull();
+            expect(paper.trashedAt).toBeNull();
+        } finally {
+            await restorePapers(['demo-memory']);
+        }
     });
 });
 

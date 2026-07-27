@@ -63,6 +63,8 @@ describe('论文阅读器翻译模型状态', () => {
             [
                 { id: 'paper-a', title: '项目论文', projects: [{ id: 'project-a', name: '代谢网络' }] },
                 { id: 'paper-b', title: '未分类论文', projects: [] },
+                { id: 'paper-c', title: '归档论文', archivedAt: '2026-07-27T00:00:00Z', projects: [] },
+                { id: 'paper-d', title: '回收站论文', trashedAt: '2026-07-27T00:00:00Z', projects: [] },
             ],
             [{ id: 'project-a', name: '代谢网络' }]
         );
@@ -74,9 +76,43 @@ describe('论文阅读器翻译模型状态', () => {
             ]
         );
 
-        renderTopbar({ ready: true, message: '已就绪' });
+        renderTopbar(
+            { ready: true, message: '已就绪' },
+            {
+                papers: [
+                    { id: 'paper-a', title: '项目论文', projects: [{ id: 'project-a', name: '代谢网络' }] },
+                    { id: 'paper-b', title: '未分类论文', projects: [] },
+                    { id: 'paper-c', title: '归档论文', archivedAt: '2026-07-27T00:00:00Z', projects: [] },
+                    { id: 'paper-d', title: '回收站论文', trashedAt: '2026-07-27T00:00:00Z', projects: [] },
+                ],
+            }
+        );
         const labels = [...document.querySelectorAll('.reader-paper-switcher optgroup')].map((group) => group.label);
         expect(labels).toEqual(['项目 · 代谢网络', '未分类']);
+        expect(screen.queryByRole('option', { name: '归档论文' })).toBeNull();
+        expect(screen.queryByRole('option', { name: '回收站论文' })).toBeNull();
+    });
+
+    it('阅读当前归档文献时在切换器中保留只针对当前项的归档分组', () => {
+        const archivedPaper = {
+            id: 'paper-c',
+            title: '归档论文',
+            archivedAt: '2026-07-27T00:00:00Z',
+            projects: [],
+        };
+        renderTopbar(
+            { ready: true, message: '已就绪' },
+            {
+                paper: archivedPaper,
+                activePaperId: 'paper-c',
+                papers: [{ id: 'paper-a', title: '活动论文', projects: [] }],
+            }
+        );
+
+        const switcher = screen.getByRole('combobox', { name: '切换论文' });
+        expect(switcher.value).toBe('paper-c');
+        expect(screen.getByRole('option', { name: '归档论文' })).toBeTruthy();
+        expect(document.querySelector('.reader-paper-switcher optgroup')?.label).toBe('当前归档文献');
     });
 
     it('可以隐藏并重新显示阅读侧栏', () => {

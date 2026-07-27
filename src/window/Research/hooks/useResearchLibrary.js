@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
+    archivePapers as archivePapersBridge,
     deletePaperPermanently,
     createProject,
     deleteProject,
@@ -8,10 +9,13 @@ import {
     listPapers,
     listProjects,
     listTags,
+    movePapersToTrash as movePapersToTrashBridge,
     movePaperToTrash,
+    restorePapers as restorePapersBridge,
     restorePaper,
     setPaperTags,
     setPaperProjects,
+    unarchivePapers as unarchivePapersBridge,
     updateProject,
 } from '../../../domains/research/bridge';
 import { filterPapers } from '../../../domains/research/model';
@@ -99,6 +103,32 @@ export function useResearchLibrary() {
         },
         [refresh]
     );
+
+    const runPaperBatch = useCallback(
+        async (operation, paperIds) => {
+            setError('');
+            try {
+                const updatedPaperIds = await operation(paperIds);
+                await refresh();
+                return updatedPaperIds;
+            } catch (reason) {
+                setError(String(reason));
+                throw reason;
+            }
+        },
+        [refresh]
+    );
+
+    const archivePapers = useCallback((paperIds) => runPaperBatch(archivePapersBridge, paperIds), [runPaperBatch]);
+
+    const unarchivePapers = useCallback((paperIds) => runPaperBatch(unarchivePapersBridge, paperIds), [runPaperBatch]);
+
+    const movePapersToTrash = useCallback(
+        (paperIds) => runPaperBatch(movePapersToTrashBridge, paperIds),
+        [runPaperBatch]
+    );
+
+    const restorePapers = useCallback((paperIds) => runPaperBatch(restorePapersBridge, paperIds), [runPaperBatch]);
 
     const updatePaperTags = useCallback(
         async (paperId, tagIds) => {
@@ -193,6 +223,10 @@ export function useResearchLibrary() {
         moveToTrash,
         restore,
         deletePermanently,
+        archivePapers,
+        unarchivePapers,
+        movePapersToTrash,
+        restorePapers,
         updatePaperTags,
         addProject,
         editProject,

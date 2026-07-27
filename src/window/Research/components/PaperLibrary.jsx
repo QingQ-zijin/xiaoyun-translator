@@ -1,18 +1,20 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
+    PiArchive,
     PiArrowClockwise,
     PiArrowSquareIn,
     PiBookOpenText,
-    PiDotsThree,
     PiFileCode,
     PiFileDoc,
     PiFilePdf,
     PiFileText,
     PiFolderOpen,
     PiFolders,
+    PiSpinnerGap,
     PiTag,
     PiTrash,
     PiUploadSimple,
+    PiX,
 } from 'react-icons/pi';
 
 import { UNCLASSIFIED_PROJECT_ID } from '../../../domains/research/model';
@@ -34,6 +36,14 @@ function documentAppearance(paper) {
         return { Icon: PiBookOpenText, label: `书籍 · ${formatAppearance.label}`, kindLabel: '书籍' };
     }
     return { ...formatAppearance, kindLabel: '论文' };
+}
+
+function formatArchivedDate(value) {
+    const text = String(value ?? '').trim();
+    const isoDate = text.match(/^(\d{4})-(\d{2})-(\d{2})/u);
+    if (isoDate) return `${isoDate[1]}-${isoDate[2]}-${isoDate[3]}`;
+    const date = new Date(text);
+    return Number.isNaN(date.getTime()) ? '日期未知' : date.toLocaleDateString('zh-CN');
 }
 
 function PaperTagMenu({ paper, tags, onChange, onClose }) {
@@ -144,15 +154,49 @@ export default function PaperLibrary({
     onImport,
     onChoose,
     onOpen,
-    onMoveToTrash,
-    onRestore,
     onDeletePermanently,
+    onArchivePapers,
+    onUnarchivePapers,
+    onMovePapersToTrash,
+    onRestorePapers,
     onTagChange,
     onProjectChange,
 }) {
     const [tagMenuPaperId, setTagMenuPaperId] = useState('');
     const [projectMenuPaperId, setProjectMenuPaperId] = useState('');
+    const [selectedPaperIds, setSelectedPaperIds] = useState(() => new Set());
+    const [lifecycleAction, setLifecycleAction] = useState('');
+    const [lifecycleError, setLifecycleError] = useState('');
+    const previousViewRef = useRef(view);
+    const selectAllRef = useRef(null);
+    const lifecycleActionRef = useRef('');
     const activeProject = projects.find((project) => project.id === activeProjectId);
+    const visiblePaperIds = papers.map((paper) => String(paper.id));
+    const visiblePaperIdsKey = visiblePaperIds.join('\u0000');
+    const selectedVisiblePaperIds = visiblePaperIds.filter((paperId) => selectedPaperIds.has(paperId));
+    const allSelected = visiblePaperIds.length > 0 && selectedVisiblePaperIds.length === visiblePaperIds.length;
+    const partlySelected = selectedVisiblePaperIds.length > 0 && !allSelected;
+    const lifecycleBusy = Boolean(lifecycleAction);
+
+    useEffect(() => {
+        const viewChanged = previousViewRef.current !== view;
+        previousViewRef.current = view;
+        const visibleIds = new Set(visiblePaperIds);
+        setSelectedPaperIds((current) => {
+            if (viewChanged) return current.size ? new Set() : current;
+            const next = new Set([...current].filter((paperId) => visibleIds.has(paperId)));
+            return next.size === current.size ? current : next;
+        });
+        if (viewChanged) {
+            setLifecycleError('');
+            setTagMenuPaperId('');
+            setProjectMenuPaperId('');
+        }
+    }, [view, visiblePaperIdsKey]);
+
+    useEffect(() => {
+        if (selectAllRef.current) selectAllRef.current.indeterminate = partlySelected;
+    }, [partlySelected]);
 
     const handleFileChange = (event) => {
         const paths = [...event.target.files].map((file) => file.name);
@@ -162,8 +206,57 @@ export default function PaperLibrary({
 
     const permanentlyDelete = async (paper) => {
         const confirmed = window.confirm(`永久删除《${paper.title}》及其批注？此操作无法撤销。`);
-        if (confirmed) await onDeletePermanently(paper.id);
+        if (!confirmed) return;
+        await runLifecycleAction({
+            action: `paper:delete:${paper.id}`,
+            handler: async ([paperId]) => onDeletePermanently(paperId),
+            paperIds: [String(paper.id)],
+        });
     };
+
+    const togglePaperSelection = (paperId) => {
+        setSelectedPaperIds((current) => {
+            const next = new Set(current);
+            if (next.has(paperId)) next.delete(paperId);
+            else next.add(paperId);
+            return next;
+        });
+    };
+
+    const toggleAllVisiblePapers = () => {
+        setSelectedPaperIds(allSelected ? new Set() : new Set(visiblePaperIds));
+    };
+
+    const runLifecycleAction = async ({ action, handler, paperIds, clearSelection = false }) => {
+        if (lifecycleActionRef.current || !handler || paperIds.length === 0) return;
+        lifecycleActionRef.current = action;
+        setLifecycleAction(action);
+        setLifecycleError('');
+        try {
+            await handler(paperIds);
+            if (clearSelection) setSelectedPaperIds(new Set());
+        } catch (reason) {
+            setLifecycleError(`操作失败：${String(reason?.message ?? reason)}`);
+        } finally {
+            lifecycleActionRef.current = '';
+            setLifecycleAction('');
+        }
+    };
+
+    const runBatchAction = (action, handler) =>
+        runLifecycleAction({
+            action: `batch:${action}`,
+            handler,
+            paperIds: selectedVisiblePaperIds,
+            clearSelection: true,
+        });
+
+    const runSingleAction = (action, handler, paperId) =>
+        runLifecycleAction({
+            action: `paper:${action}:${paperId}`,
+            handler,
+            paperIds: [paperId],
+        });
 
     return (
         <main className={`paper-library ${isDragging ? 'is-dragging' : ''}`}>
@@ -180,17 +273,21 @@ export default function PaperLibrary({
                     <h1>
                         {view === 'trash'
                             ? '回收站'
-                            : activeProjectId === UNCLASSIFIED_PROJECT_ID
-                              ? '未分类'
-                              : activeProject?.name || '文献库'}
+                            : view === 'archive'
+                              ? '已归档'
+                              : activeProjectId === UNCLASSIFIED_PROJECT_ID
+                                ? '未分类'
+                                : activeProject?.name || '文献库'}
                     </h1>
                     <p>
                         {view === 'trash'
                             ? '论文会保留在这里，直到你永久删除。'
-                            : '本地保存、阅读并用 Ollama 理解你的论文与书籍。'}
+                            : view === 'archive'
+                              ? '归档文献会保留分类与批注，可随时恢复到文献库。'
+                              : '本地保存、阅读并用 Ollama 理解你的论文与书籍。'}
                     </p>
                 </div>
-                {view !== 'trash' ? (
+                {!['trash', 'archive'].includes(view) ? (
                     <button
                         className='primary-button'
                         type='button'
@@ -203,12 +300,94 @@ export default function PaperLibrary({
                 ) : null}
             </header>
 
-            {error ? (
+            {lifecycleError || error ? (
                 <div
                     className='research-error'
                     role='alert'
                 >
-                    {error}
+                    {lifecycleError || error}
+                </div>
+            ) : null}
+
+            {selectedVisiblePaperIds.length > 0 ? (
+                <div
+                    className='paper-batch-toolbar'
+                    role='toolbar'
+                    aria-label='批量管理文献'
+                >
+                    <div className='paper-batch-toolbar__summary'>
+                        <strong>{selectedVisiblePaperIds.length} 篇已选择</strong>
+                        <span>仅处理当前筛选结果</span>
+                    </div>
+                    <div className='paper-batch-toolbar__actions'>
+                        {view === 'trash' ? (
+                            <button
+                                type='button'
+                                disabled={lifecycleBusy}
+                                onClick={() => void runBatchAction('restore', onRestorePapers)}
+                            >
+                                {lifecycleAction === 'batch:restore' ? (
+                                    <PiSpinnerGap
+                                        className='is-spinning'
+                                        aria-hidden='true'
+                                    />
+                                ) : (
+                                    <PiArrowClockwise aria-hidden='true' />
+                                )}
+                                恢复所选文献
+                            </button>
+                        ) : (
+                            <>
+                                <button
+                                    type='button'
+                                    disabled={lifecycleBusy}
+                                    onClick={() =>
+                                        void runBatchAction(
+                                            view === 'archive' ? 'unarchive' : 'archive',
+                                            view === 'archive' ? onUnarchivePapers : onArchivePapers
+                                        )
+                                    }
+                                >
+                                    {lifecycleAction === `batch:${view === 'archive' ? 'unarchive' : 'archive'}` ? (
+                                        <PiSpinnerGap
+                                            className='is-spinning'
+                                            aria-hidden='true'
+                                        />
+                                    ) : (
+                                        <PiArchive aria-hidden='true' />
+                                    )}
+                                    {view === 'archive' ? '取消归档所选文献' : '归档所选文献'}
+                                </button>
+                                <button
+                                    className='is-danger'
+                                    type='button'
+                                    disabled={lifecycleBusy}
+                                    onClick={() => void runBatchAction('trash', onMovePapersToTrash)}
+                                >
+                                    {lifecycleAction === 'batch:trash' ? (
+                                        <PiSpinnerGap
+                                            className='is-spinning'
+                                            aria-hidden='true'
+                                        />
+                                    ) : (
+                                        <PiTrash aria-hidden='true' />
+                                    )}
+                                    移到回收站
+                                </button>
+                            </>
+                        )}
+                        <button
+                            className='paper-batch-toolbar__clear'
+                            type='button'
+                            aria-label='清除文献选择'
+                            title='清除选择'
+                            disabled={lifecycleBusy}
+                            onClick={() => setSelectedPaperIds(new Set())}
+                        >
+                            <PiX aria-hidden='true' />
+                            清除选择
+                        </button>
+                    </div>
                 </div>
             ) : null}
 
@@ -221,15 +400,29 @@ export default function PaperLibrary({
                 <button
                     className='library-empty'
                     type='button'
-                    disabled={importing}
-                    onClick={() => view !== 'trash' && onChoose?.()}
+                    disabled={importing || view === 'trash' || view === 'archive'}
+                    onClick={() => !['trash', 'archive'].includes(view) && onChoose?.()}
                 >
-                    {view === 'trash' ? <PiTrash aria-hidden='true' /> : <PiFolderOpen aria-hidden='true' />}
-                    <strong>{view === 'trash' ? '回收站是空的' : '把第一份文献放进来'}</strong>
+                    {view === 'trash' ? (
+                        <PiTrash aria-hidden='true' />
+                    ) : view === 'archive' ? (
+                        <PiArchive aria-hidden='true' />
+                    ) : (
+                        <PiFolderOpen aria-hidden='true' />
+                    )}
+                    <strong>
+                        {view === 'trash'
+                            ? '回收站是空的'
+                            : view === 'archive'
+                              ? '还没有归档文献'
+                              : '把第一份文献放进来'}
+                    </strong>
                     <span>
                         {view === 'trash'
                             ? '删除的论文会先来到这里。'
-                            : '支持 PDF、Markdown、DOCX 与 TeX，也可以直接拖到窗口。'}
+                            : view === 'archive'
+                              ? '从文献库选择论文后，可批量归档到这里。'
+                              : '支持 PDF、Markdown、DOCX 与 TeX，也可以直接拖到窗口。'}
                     </span>
                 </button>
             ) : (
@@ -237,10 +430,18 @@ export default function PaperLibrary({
                     className='paper-list'
                     aria-label='文献列表'
                 >
-                    <div
-                        className='paper-list__head'
-                        aria-hidden='true'
-                    >
+                    <div className='paper-list__head'>
+                        <label className='paper-selection-control paper-selection-control--all'>
+                            <input
+                                ref={selectAllRef}
+                                type='checkbox'
+                                aria-label='选择当前筛选结果中的全部文献'
+                                checked={allSelected}
+                                disabled={lifecycleBusy}
+                                onChange={toggleAllVisiblePapers}
+                            />
+                            <span aria-hidden='true' />
+                        </label>
                         <span>文献</span>
                         <span>分类</span>
                         <span>阅读进度</span>
@@ -260,9 +461,22 @@ export default function PaperLibrary({
                             tagPreview.length;
                         return (
                             <article
-                                className='paper-row'
+                                className={`paper-row ${paper.archivedAt ? 'is-archived' : ''} ${
+                                    selectedPaperIds.has(String(paper.id)) ? 'is-selected' : ''
+                                }`}
+                                data-selected={selectedPaperIds.has(String(paper.id))}
                                 key={paper.id}
                             >
+                                <label className='paper-selection-control'>
+                                    <input
+                                        type='checkbox'
+                                        aria-label={`选择《${paper.title}》`}
+                                        checked={selectedPaperIds.has(String(paper.id))}
+                                        disabled={lifecycleBusy}
+                                        onChange={() => togglePaperSelection(String(paper.id))}
+                                    />
+                                    <span aria-hidden='true' />
+                                </label>
                                 <button
                                     className='paper-row__main'
                                     type='button'
@@ -285,6 +499,12 @@ export default function PaperLibrary({
                                         </small>
                                         {paper.importWarning ? (
                                             <em className='paper-row__warning'>{paper.importWarning}</em>
+                                        ) : null}
+                                        {paper.archivedAt ? (
+                                            <span className='paper-row__archive-badge'>
+                                                <PiArchive aria-hidden='true' />
+                                                已归档 {formatArchivedDate(paper.archivedAt)}
+                                            </span>
                                         ) : null}
                                     </span>
                                 </button>
@@ -324,28 +544,51 @@ export default function PaperLibrary({
                                                 className='icon-button'
                                                 type='button'
                                                 aria-label='恢复论文'
-                                                onClick={() => onRestore(paper.id)}
+                                                disabled={lifecycleBusy}
+                                                onClick={() =>
+                                                    void runSingleAction(
+                                                        'restore',
+                                                        onRestorePapers,
+                                                        String(paper.id)
+                                                    )
+                                                }
                                             >
-                                                <PiArrowClockwise />
+                                                {lifecycleAction === `paper:restore:${paper.id}` ? (
+                                                    <PiSpinnerGap
+                                                        className='is-spinning'
+                                                        aria-hidden='true'
+                                                    />
+                                                ) : (
+                                                    <PiArrowClockwise />
+                                                )}
                                             </button>
                                             <button
                                                 className='icon-button is-danger'
                                                 type='button'
                                                 aria-label='永久删除'
-                                                onClick={() => permanentlyDelete(paper)}
+                                                disabled={lifecycleBusy}
+                                                onClick={() => void permanentlyDelete(paper)}
                                             >
-                                                <PiTrash />
+                                                {lifecycleAction === `paper:delete:${paper.id}` ? (
+                                                    <PiSpinnerGap
+                                                        className='is-spinning'
+                                                        aria-hidden='true'
+                                                    />
+                                                ) : (
+                                                    <PiTrash />
+                                                )}
                                             </button>
                                         </>
                                     ) : (
                                         <>
-                                            <div className='paper-row__project-control'>
+                                            <div className='paper-row__project-control paper-row__secondary-action'>
                                                 <button
                                                     className='icon-button'
                                                     type='button'
                                                     aria-label={`分配《${paper.title}》到项目`}
                                                     aria-haspopup='menu'
                                                     aria-expanded={projectMenuPaperId === paper.id}
+                                                    disabled={lifecycleBusy}
                                                     onClick={() => {
                                                         setTagMenuPaperId('');
                                                         setProjectMenuPaperId((current) =>
@@ -364,12 +607,13 @@ export default function PaperLibrary({
                                                     />
                                                 ) : null}
                                             </div>
-                                            <div className='paper-row__tag-control'>
+                                            <div className='paper-row__tag-control paper-row__secondary-action'>
                                                 <button
                                                     className='icon-button'
                                                     type='button'
                                                     aria-label='设置标签'
                                                     aria-expanded={tagMenuPaperId === paper.id}
+                                                    disabled={lifecycleBusy}
                                                     onClick={() => {
                                                         setProjectMenuPaperId('');
                                                         setTagMenuPaperId((current) =>
@@ -389,30 +633,65 @@ export default function PaperLibrary({
                                                 ) : null}
                                             </div>
                                             <button
-                                                className='icon-button'
+                                                className='icon-button paper-row__secondary-action'
                                                 type='button'
                                                 aria-label='打开论文'
+                                                disabled={lifecycleBusy}
                                                 onClick={() => onOpen(paper.id)}
                                             >
                                                 <PiArrowSquareIn />
                                             </button>
                                             <button
+                                                className='icon-button'
+                                                type='button'
+                                                aria-label={
+                                                    view === 'archive'
+                                                        ? `取消归档《${paper.title}》`
+                                                        : `归档《${paper.title}》`
+                                                }
+                                                disabled={lifecycleBusy}
+                                                onClick={() =>
+                                                    void runSingleAction(
+                                                        view === 'archive' ? 'unarchive' : 'archive',
+                                                        view === 'archive' ? onUnarchivePapers : onArchivePapers,
+                                                        String(paper.id)
+                                                    )
+                                                }
+                                            >
+                                                {lifecycleAction ===
+                                                `paper:${view === 'archive' ? 'unarchive' : 'archive'}:${paper.id}` ? (
+                                                    <PiSpinnerGap
+                                                        className='is-spinning'
+                                                        aria-hidden='true'
+                                                    />
+                                                ) : (
+                                                    <PiArchive />
+                                                )}
+                                            </button>
+                                            <button
                                                 className='icon-button is-danger'
                                                 type='button'
-                                                aria-label='移到回收站'
-                                                onClick={() => onMoveToTrash(paper.id)}
+                                                aria-label={`移到回收站《${paper.title}》`}
+                                                disabled={lifecycleBusy}
+                                                onClick={() =>
+                                                    void runSingleAction(
+                                                        'trash',
+                                                        onMovePapersToTrash,
+                                                        String(paper.id)
+                                                    )
+                                                }
                                             >
-                                                <PiTrash />
+                                                {lifecycleAction === `paper:trash:${paper.id}` ? (
+                                                    <PiSpinnerGap
+                                                        className='is-spinning'
+                                                        aria-hidden='true'
+                                                    />
+                                                ) : (
+                                                    <PiTrash />
+                                                )}
                                             </button>
                                         </>
                                     )}
-                                    <button
-                                        className='icon-button paper-row__more'
-                                        type='button'
-                                        aria-label='更多操作'
-                                    >
-                                        <PiDotsThree />
-                                    </button>
                                 </div>
                             </article>
                         );

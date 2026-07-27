@@ -25,14 +25,22 @@ const papers = [
         tags: [{ id: 'neuro', name: '神经科学' }],
     },
     { id: 'p2', title: 'Metabolic flux', authors: 'Liu et al.', year: 2023, tags: [] },
-    { id: 'p3', title: 'Archived paper', authors: 'Xu', trashedAt: '2026-01-01', tags: [] },
+    { id: 'p3', title: 'Archived paper', authors: 'Xu', archivedAt: '2026-01-01', tags: [] },
+    { id: 'p4', title: 'Trashed paper', authors: 'Wu', trashedAt: '2026-01-02', tags: [] },
+    {
+        id: 'p5',
+        title: 'Invalid legacy lifecycle',
+        archivedAt: '2026-01-01',
+        trashedAt: '2026-01-02',
+        tags: [],
+    },
 ];
 
 test('划词翻译防抖保持在五十毫秒以内', () => {
     assert.ok(PDF_SELECTION_DEBOUNCE_MS >= 16 && PDF_SELECTION_DEBOUNCE_MS <= 50);
 });
 
-test('论文检索同时匹配标题、作者、年份和标签，并隔离回收站', () => {
+test('论文检索同时匹配标题、作者、年份和标签，并隔离归档与回收站', () => {
     assert.deepEqual(
         filterPapers(papers, { query: '神经', view: 'all' }).map((paper) => paper.id),
         ['p1']
@@ -42,8 +50,12 @@ test('论文检索同时匹配标题、作者、年份和标签，并隔离回�
         ['p2']
     );
     assert.deepEqual(
-        filterPapers(papers, { view: 'trash' }).map((paper) => paper.id),
+        filterPapers(papers, { view: 'archive' }).map((paper) => paper.id),
         ['p3']
+    );
+    assert.deepEqual(
+        filterPapers(papers, { view: 'trash' }).map((paper) => paper.id),
+        ['p4', 'p5']
     );
 });
 

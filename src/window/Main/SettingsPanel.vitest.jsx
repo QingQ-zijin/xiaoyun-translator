@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import SettingsPanel from './SettingsPanel';
 
@@ -66,5 +66,74 @@ describe('统一设置页导航', () => {
         expect(screen.getByRole('heading', { name: 'Windows 本地朗读' })).toBeTruthy();
         expect(screen.getByText(/系统 SpeechSynthesizer/u)).toBeTruthy();
         expect(screen.getByPlaceholderText('自动选择 Windows 声音')).toBeTruthy();
+    });
+
+    it('软件更新页共享版本、可用更新与手动操作状态', async () => {
+        const updater = {
+            runtime: true,
+            phase: 'available',
+            currentVersion: '4.5.2',
+            updateVersion: '4.5.3',
+            notes: '修复更新测试',
+            progressPercent: null,
+            error: '',
+            errorKind: '',
+            hasChecked: true,
+            isChecking: false,
+            isInstalling: false,
+            checkForUpdates: vi.fn().mockResolvedValue(null),
+            installUpdate: vi.fn().mockResolvedValue(true),
+        };
+        render(
+            <SettingsPanel
+                platform='windows'
+                updater={updater}
+            />
+        );
+
+        await waitFor(() => expect(screen.getByRole('heading', { name: 'Ollama 与模型' })).toBeTruthy());
+        fireEvent.click(screen.getByRole('button', { name: '软件更新' }));
+
+        expect(screen.getByRole('heading', { name: '软件更新' })).toBeTruthy();
+        expect(screen.getByText('4.5.2')).toBeTruthy();
+        expect(screen.getByText('发现新版本 4.5.3')).toBeTruthy();
+        expect(screen.getByText('修复更新测试')).toBeTruthy();
+
+        fireEvent.click(screen.getByRole('button', { name: '检查更新' }));
+        fireEvent.click(screen.getByRole('button', { name: '立即更新' }));
+
+        expect(updater.checkForUpdates).toHaveBeenCalledWith({ silent: false });
+        expect(updater.installUpdate).toHaveBeenCalledTimes(1);
+    });
+
+    it('软件更新页显示检查失败并提供重试', async () => {
+        const updater = {
+            runtime: true,
+            phase: 'idle',
+            currentVersion: '4.5.2',
+            updateVersion: '',
+            notes: '',
+            progressPercent: null,
+            error: '检查更新失败：网络不可用',
+            errorKind: 'check',
+            hasChecked: true,
+            isChecking: false,
+            isInstalling: false,
+            checkForUpdates: vi.fn().mockResolvedValue(null),
+            installUpdate: vi.fn().mockResolvedValue(false),
+        };
+        render(
+            <SettingsPanel
+                platform='windows'
+                updater={updater}
+            />
+        );
+
+        await waitFor(() => expect(screen.getByRole('heading', { name: 'Ollama 与模型' })).toBeTruthy());
+        fireEvent.click(screen.getByRole('button', { name: '软件更新' }));
+
+        expect(screen.getByText('检查更新失败：网络不可用')).toBeTruthy();
+        fireEvent.click(screen.getByRole('button', { name: '重试检查' }));
+        expect(updater.checkForUpdates).toHaveBeenCalledWith({ silent: false });
     });
 });

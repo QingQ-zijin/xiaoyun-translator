@@ -24,7 +24,7 @@ describe('论文阅读纯函数', () => {
         expect(PDF_SELECTION_DEBOUNCE_MS).toBeLessThanOrEqual(50);
     });
 
-    it('规范化检索并隔离回收站与标签', () => {
+    it('规范化检索并隔离归档、回收站与标签', () => {
         const papers = [
             {
                 id: 'a',
@@ -35,12 +35,22 @@ describe('论文阅读纯函数', () => {
                 projects: [{ id: 'project-1', name: '代谢研究' }],
             },
             { id: 'c', title: 'Unsorted Paper', authors: 'Wang', tags: [], projects: [] },
-            { id: 'b', title: 'Old Paper', authors: 'Zhang', trashedAt: 'now', tags: [] },
+            { id: 'b', title: 'Archived Paper', authors: 'Zhang', archivedAt: 'archived', tags: [] },
+            { id: 'd', title: 'Trashed Paper', authors: 'Wu', trashedAt: 'trashed', tags: [] },
+            {
+                id: 'e',
+                title: 'Invalid Legacy State',
+                authors: 'Xu',
+                archivedAt: 'archived',
+                trashedAt: 'trashed',
+                tags: [],
+            },
         ];
         expect(normalizeSearchText('  Ｆｌｕｘ  ')).toBe('flux');
         expect(filterPapers(papers, { query: 'liu', view: 'all' }).map((paper) => paper.id)).toEqual(['a']);
         expect(filterPapers(papers, { view: 'tagged', tagId: 'm' }).map((paper) => paper.id)).toEqual(['a']);
-        expect(filterPapers(papers, { view: 'trash' }).map((paper) => paper.id)).toEqual(['b']);
+        expect(filterPapers(papers, { view: 'archive' }).map((paper) => paper.id)).toEqual(['b']);
+        expect(filterPapers(papers, { view: 'trash' }).map((paper) => paper.id)).toEqual(['d', 'e']);
         expect(filterPapers(papers, { projectId: 'project-1' }).map((paper) => paper.id)).toEqual(['a']);
         expect(filterPapers(papers, { projectId: UNCLASSIFIED_PROJECT_ID }).map((paper) => paper.id)).toEqual(['c']);
         expect(filterPapers(papers, { query: '代谢研究' }).map((paper) => paper.id)).toEqual(['a']);

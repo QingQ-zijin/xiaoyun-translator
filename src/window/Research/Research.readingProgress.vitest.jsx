@@ -150,7 +150,7 @@ vi.mock('./components/PdfWorkspace', async () => {
     };
 });
 
-import Research from './index';
+import Research, { availableLibraryPapers, getLibraryPaperCounts } from './index';
 
 beforeEach(() => {
     testState.papers = [
@@ -173,6 +173,36 @@ beforeEach(() => {
 });
 
 afterEach(cleanup);
+
+describe('paper lifecycle availability', () => {
+    it('keeps archived papers out of counts and reader candidates while counting archive and trash separately', () => {
+        const papers = [
+            { id: 'active-tagged', tags: [{ id: 'tag-1' }], projects: [{ id: 'project-1' }] },
+            { id: 'active-unclassified', tags: [], projects: [] },
+            { id: 'archived', archivedAt: '2026-07-27T13:20:00Z', tags: [{ id: 'tag-1' }], projects: [] },
+            { id: 'trashed', trashedAt: '2026-07-27T13:30:00Z', tags: [], projects: [] },
+            {
+                id: 'archived-then-trashed',
+                archivedAt: '2026-07-27T13:20:00Z',
+                trashedAt: '2026-07-27T13:30:00Z',
+                tags: [],
+                projects: [],
+            },
+        ];
+
+        expect(availableLibraryPapers(papers).map((paper) => paper.id)).toEqual([
+            'active-tagged',
+            'active-unclassified',
+        ]);
+        expect(getLibraryPaperCounts(papers)).toEqual({
+            all: 2,
+            tagged: 1,
+            unclassified: 1,
+            archive: 1,
+            trash: 2,
+        });
+    });
+});
 
 describe('论文阅读进度恢复', () => {
     it('按论文分别恢复页码、缩放和滚动位置，切换及返回论文库后重开仍保持', async () => {

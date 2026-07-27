@@ -39,7 +39,7 @@ export function getOllamaModelDisplayName(model) {
 }
 
 export function groupPapersByProject(papers = [], projects = []) {
-    const availablePapers = papers.filter((paper) => paper && !paper.trashedAt);
+    const availablePapers = papers.filter((paper) => paper && !paper.trashedAt && !paper.archivedAt);
     const projectMap = new Map();
     for (const project of projects) {
         if (project?.id) projectMap.set(String(project.id), project);
@@ -87,6 +87,17 @@ export default function ReaderTopbar({
     const [searchValue, setSearchValue] = useState('');
     const modelStatus = getTranslationStatusPresentation(translationStatus);
     const paperGroups = groupPapersByProject(papers, projects);
+    const currentPaperId = String(activePaperId || paper?.id || '');
+    const currentPaperIsMissing = !paperGroups.some((group) =>
+        group.papers.some((item) => String(item.id) === currentPaperId)
+    );
+    if (paper?.archivedAt && currentPaperId && currentPaperIsMissing) {
+        paperGroups.unshift({
+            id: '__archived_current__',
+            label: '当前归档文献',
+            papers: [paper],
+        });
+    }
 
     const submitSearch = (event) => {
         event.preventDefault();

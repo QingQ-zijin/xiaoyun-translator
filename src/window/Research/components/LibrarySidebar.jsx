@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
     PiArrowLeft,
+    PiArchive,
     PiBookmarkSimple,
     PiBooks,
     PiCaretRight,
@@ -416,6 +417,15 @@ export default function LibrarySidebar({
                     <PiTag aria-hidden='true' />
                     <span>已加标签</span>
                     <small>{paperCounts.tagged}</small>
+                </button>
+                <button
+                    className={view === 'archive' ? 'is-active' : ''}
+                    type='button'
+                    onClick={() => onViewChange('archive')}
+                >
+                    <PiArchive aria-hidden='true' />
+                    <span>已归档</span>
+                    <small>{paperCounts.archive}</small>
                 </button>
                 <button
                     className={view === 'trash' ? 'is-active' : ''}

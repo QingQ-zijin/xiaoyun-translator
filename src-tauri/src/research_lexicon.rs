@@ -34,6 +34,7 @@ const MAX_DOMAIN_NOTE_CHARS: usize = 400;
 const MAX_PHONETICS: usize = 2;
 const MAX_SENSES: usize = 8;
 const MAX_DEFINITIONS_PER_SENSE: usize = 3;
+const DEFINE_TERM_CANCELLED_ERROR: &str = "词典查询已取消";
 
 static DEFINE_TERM_SEQUENCE: AtomicUsize = AtomicUsize::new(1);
 static ACTIVE_DEFINE_TERM: Lazy<Mutex<Option<Arc<DefineTermCancellation>>>> =
@@ -59,7 +60,9 @@ impl DefineTermCancellation {
 
     fn cancel(&self) {
         self.cancelled.store(true, Ordering::Release);
-        self.notify.notify_waiters();
+        // 每个词典请求只有一个等待者。notify_one 会在等待者尚未注册时保留 permit，
+        // 避免取消恰好落在原子状态检查与 select 首次 poll 之间时丢失即时唤醒。
+        self.notify.notify_one();
     }
 
     fn cancel_for_replacement(&self) {
@@ -505,26 +508,51 @@ async fn request_entry(
     cancellation: &DefineTermCancellation,
 ) -> Result<LexiconEntry, String> {
     if cancellation.is_cancelled() {
-        return Err("词典查询已取消".to_string());
+        return Err(DEFINE_TERM_CANCELLED_ERROR.to_string());
     }
     let send_request = client
         .post(format!("{}/api/chat", normalized_host(endpoint)?))
         .json(&build_entry_request(endpoint, request))
         .send();
-    let response = tokio::select! {
-        response = send_request => response.map_err(|error| format!("词典模型请求失败：{error}"))?,
-        _ = cancellation.notify.notified() => return Err("词典查询已取消".to_string()),
+    let response_result = tokio::select! {
+        biased;
+        _ = cancellation.notify.notified() => return Err(DEFINE_TERM_CANCELLED_ERROR.to_string()),
+        response = send_request => response,
     };
+    let response = match response_result {
+        Ok(response) => response,
+        Err(_) if cancellation.is_cancelled() => {
+            return Err(DEFINE_TERM_CANCELLED_ERROR.to_string());
+        }
+        Err(error) => return Err(format!("词典模型请求失败：{error}")),
+    };
+    if cancellation.is_cancelled() {
+        return Err(DEFINE_TERM_CANCELLED_ERROR.to_string());
+    }
     if !response.status().is_success() {
         return Err(format!("词典模型请求失败：HTTP {}", response.status()));
     }
     let read_response = response.bytes();
-    let body = tokio::select! {
-        body = read_response => body.map_err(|error| format!("读取词典模型响应失败：{error}"))?,
-        _ = cancellation.notify.notified() => return Err("词典查询已取消".to_string()),
+    let body_result = tokio::select! {
+        biased;
+        _ = cancellation.notify.notified() => return Err(DEFINE_TERM_CANCELLED_ERROR.to_string()),
+        body = read_response => body,
     };
+    let body = match body_result {
+        Ok(body) => body,
+        Err(_) if cancellation.is_cancelled() => {
+            return Err(DEFINE_TERM_CANCELLED_ERROR.to_string());
+        }
+        Err(error) => return Err(format!("读取词典模型响应失败：{error}")),
+    };
+    if cancellation.is_cancelled() {
+        return Err(DEFINE_TERM_CANCELLED_ERROR.to_string());
+    }
     let body = serde_json::from_slice::<ChatResponse>(&body)
         .map_err(|error| format!("解析词典模型响应失败：{error}"))?;
+    if cancellation.is_cancelled() {
+        return Err(DEFINE_TERM_CANCELLED_ERROR.to_string());
+    }
     parse_entry(&body.message.content, &request.term, endpoint.model.trim())
 }
 
@@ -887,6 +915,20 @@ mod tests {
         cancellation.cancel_for_translation();
         assert!(cancellation.is_cancelled());
         assert!(cancellation.was_preempted_by_translation());
+    }
+
+    #[test]
+    fn cancellation_notification_survives_late_waiter_registration() {
+        let cancellation = DefineTermCancellation::new("late-waiter".to_string());
+        cancellation.cancel();
+
+        let notified = tauri::async_runtime::block_on(async {
+            tokio::time::timeout(Duration::from_millis(100), cancellation.notify.notified()).await
+        });
+        assert!(
+            notified.is_ok(),
+            "取消发生在 waiter 注册前时也必须保留即时唤醒 permit"
+        );
     }
 
     #[test]

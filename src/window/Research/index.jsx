@@ -83,6 +83,21 @@ const PAPER_SELECTION_TRANSLATION_TIMEOUT_MS = 20_000;
 const PLATFORM_PRESENTATION = getPlatformPresentation();
 const UNDO_SHORTCUT = formatShortcutForPlatform('CommandOrControl+Z');
 
+export function availableLibraryPapers(papers = []) {
+    return papers.filter((paper) => paper && !paper.trashedAt && !paper.archivedAt);
+}
+
+export function getLibraryPaperCounts(papers = []) {
+    const available = availableLibraryPapers(papers);
+    return {
+        all: available.length,
+        tagged: available.filter((paper) => paper.tags?.length > 0).length,
+        unclassified: available.filter((paper) => !(paper.projects?.length > 0)).length,
+        archive: papers.filter((paper) => paper && !paper.trashedAt && paper.archivedAt).length,
+        trash: papers.filter((paper) => paper?.trashedAt).length,
+    };
+}
+
 function LibraryTopbar({ translationStatus }) {
     const modelStatus = getTranslationStatusPresentation(translationStatus);
     return (
@@ -279,15 +294,8 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
     const sidebarCollapsed = isReader && sidebarResize.collapsed;
     const selectionKind = useMemo(() => classifySelection(selection?.quote), [selection?.quote]);
 
-    const paperCounts = useMemo(
-        () => ({
-            all: library.papers.filter((paper) => !paper.trashedAt).length,
-            tagged: library.papers.filter((paper) => !paper.trashedAt && paper.tags?.length > 0).length,
-            unclassified: library.papers.filter((paper) => !paper.trashedAt && !(paper.projects?.length > 0)).length,
-            trash: library.papers.filter((paper) => paper.trashedAt).length,
-        }),
-        [library.papers]
-    );
+    const availablePapers = useMemo(() => availableLibraryPapers(library.papers), [library.papers]);
+    const paperCounts = useMemo(() => getLibraryPaperCounts(library.papers), [library.papers]);
 
     useEffect(() => {
         if (!paperId) {
@@ -555,9 +563,9 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
     useEffect(() => {
         if (!restoreRecentPaperRef.current || library.loading || paperId) return;
         restoreRecentPaperRef.current = false;
-        const recentPaper = library.papers.find((paper) => !paper.trashedAt);
+        const recentPaper = availablePapers[0];
         if (recentPaper) openPaper(recentPaper.id);
-    }, [library.loading, library.papers, openPaper, paperId]);
+    }, [availablePapers, library.loading, openPaper, paperId]);
 
     const handlePageJump = useCallback(
         (target) => {
@@ -1190,7 +1198,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
             {isReader ? (
                 <ReaderTopbar
                     paper={document.paper}
-                    papers={library.papers.filter((paper) => !paper.trashedAt)}
+                    papers={availablePapers}
                     projects={library.projects}
                     activePaperId={paperId}
                     onPaperChange={openPaper}
@@ -1339,9 +1347,11 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                     onImport={(paths) => handleImport(paths, browserImportKindRef.current)}
                     onChoose={handleChoosePapers}
                     onOpen={openPaper}
-                    onMoveToTrash={library.moveToTrash}
-                    onRestore={library.restore}
                     onDeletePermanently={library.deletePermanently}
+                    onArchivePapers={library.archivePapers}
+                    onUnarchivePapers={library.unarchivePapers}
+                    onMovePapersToTrash={library.movePapersToTrash}
+                    onRestorePapers={library.restorePapers}
                     onTagChange={library.updatePaperTags}
                     onProjectChange={library.updatePaperProjects}
                 />

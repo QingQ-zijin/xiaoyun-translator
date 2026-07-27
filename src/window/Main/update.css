@@ -1,0 +1,223 @@
+.app-update-notice {
+    position: absolute;
+    right: 24px;
+    bottom: 22px;
+    z-index: 60;
+    width: min(660px, calc(100% - var(--app-rail-width) - 48px));
+    min-height: 76px;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 13px;
+    padding: 13px 14px;
+    border: 1px solid #d9d2f5;
+    border-radius: 14px;
+    background: rgba(255, 254, 250, 0.98);
+    box-shadow: 0 18px 48px rgba(35, 31, 56, 0.2);
+    backdrop-filter: blur(12px);
+}
+
+.app-update-notice--readyToRelaunch {
+    border-color: #cce8d7;
+}
+
+.app-update-notice__icon {
+    width: 40px;
+    height: 40px;
+    display: grid;
+    place-items: center;
+    border-radius: 11px;
+    background: var(--main-accent-soft);
+    color: var(--main-accent);
+}
+
+.app-update-notice__icon > svg {
+    width: 21px;
+    height: 21px;
+}
+
+.app-update-notice__content {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.app-update-notice__content strong {
+    color: var(--main-text);
+    font-size: 13px;
+}
+
+.app-update-notice__content > span {
+    overflow: hidden;
+    color: var(--main-muted);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.app-update-notice__content progress,
+.settings-update-progress progress {
+    width: 100%;
+    height: 6px;
+    margin-top: 5px;
+    overflow: hidden;
+    border: 0;
+    border-radius: 999px;
+    accent-color: var(--main-accent);
+}
+
+.app-update-notice__content progress::-webkit-progress-bar,
+.settings-update-progress progress::-webkit-progress-bar {
+    border-radius: 999px;
+    background: #e8e4f5;
+}
+
+.app-update-notice__content progress::-webkit-progress-value,
+.settings-update-progress progress::-webkit-progress-value {
+    border-radius: 999px;
+    background: var(--main-accent);
+}
+
+.app-update-notice__actions,
+.settings-update-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.app-update-notice__actions button,
+.settings-update-actions button {
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 12px;
+    border: 1px solid var(--main-border);
+    border-radius: 9px;
+    background: #fff;
+    color: #5f626c;
+    font-size: 11px;
+    font-weight: 650;
+}
+
+.app-update-notice__actions button:disabled,
+.settings-update-actions button:disabled {
+    cursor: not-allowed;
+    opacity: 0.58;
+}
+
+.app-update-notice__actions button svg,
+.settings-update-actions button svg {
+    width: 15px;
+    height: 15px;
+}
+
+.app-update-notice__actions .app-update-notice__primary,
+.settings-update-actions .is-primary {
+    border-color: var(--main-accent);
+    background: var(--main-accent);
+    color: #fff;
+}
+
+.app-update-notice__later {
+    border-color: transparent !important;
+    background: transparent !important;
+}
+
+.settings-update-summary {
+    display: grid;
+    gap: 12px;
+}
+
+.settings-update-version,
+.settings-update-status {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid var(--main-border);
+    border-radius: 10px;
+    background: #fff;
+}
+
+.settings-update-version > svg,
+.settings-update-status > svg {
+    width: 20px;
+    height: 20px;
+    flex: 0 0 auto;
+    margin-top: 1px;
+    color: var(--main-accent);
+}
+
+.settings-update-version > div,
+.settings-update-status > div {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.settings-update-version strong,
+.settings-update-status strong {
+    font-size: 12px;
+}
+
+.settings-update-version span,
+.settings-update-status span,
+.settings-update-notes {
+    color: var(--main-muted);
+    font-size: 11px;
+    line-height: 1.6;
+}
+
+.settings-update-status.is-error {
+    border-color: #f1d0d3;
+    background: #fff7f7;
+}
+
+.settings-update-status.is-error > svg,
+.settings-update-status.is-error strong {
+    color: var(--main-danger);
+}
+
+.settings-update-notes {
+    max-height: 110px;
+    overflow: auto;
+    margin: 0;
+    padding: 10px 12px;
+    border-left: 3px solid #d9d2f5;
+    background: #faf8ff;
+    white-space: pre-wrap;
+}
+
+.settings-update-progress {
+    display: grid;
+    gap: 4px;
+}
+
+.settings-update-progress > span {
+    color: var(--main-muted);
+    font-size: 10px;
+    text-align: right;
+}
+
+@media (max-width: 880px) {
+    .app-update-notice {
+        right: 16px;
+        bottom: 16px;
+        width: min(620px, calc(100% - var(--app-rail-width) - 32px));
+        grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    .app-update-notice__actions {
+        grid-column: 2;
+        justify-content: flex-end;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .app-update-notice .is-spinning {
+        animation-duration: 1.8s;
+    }
+}

@@ -673,7 +673,8 @@ fn load_paper_chunks(paper_id: &str) -> Result<(String, Vec<InsightChunk>), Stri
     with_database(|connection| {
         let title = connection
             .query_row(
-                "SELECT title FROM papers WHERE id = ?1 AND trashed_at IS NULL",
+                "SELECT title FROM papers
+                 WHERE id = ?1 AND trashed_at IS NULL AND archived_at IS NULL",
                 params![paper_id],
                 |row| row.get::<_, String>(0),
             )
@@ -712,7 +713,7 @@ fn load_chapter_chunks(
         let paper = connection
             .query_row(
                 "SELECT title, page_count FROM papers
-                 WHERE id = ?1 AND trashed_at IS NULL",
+                 WHERE id = ?1 AND trashed_at IS NULL AND archived_at IS NULL",
                 params![paper_id],
                 |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
             )
@@ -747,7 +748,8 @@ fn load_paper_page_count(paper_id: &str) -> Result<i64, String> {
     with_database(|connection| {
         connection
             .query_row(
-                "SELECT page_count FROM papers WHERE id = ?1 AND trashed_at IS NULL",
+                "SELECT page_count FROM papers
+                 WHERE id = ?1 AND trashed_at IS NULL AND archived_at IS NULL",
                 params![paper_id],
                 |row| row.get::<_, i64>(0),
             )
@@ -1758,6 +1760,7 @@ pub fn research_list_pending_paper_insights() -> Result<Vec<String>, String> {
                  FROM papers p
                  LEFT JOIN paper_insights i ON i.paper_id = p.id
                  WHERE p.trashed_at IS NULL
+                   AND p.archived_at IS NULL
                    AND (i.paper_id IS NULL OR i.status IN ('queued', 'paused', 'generating'))
                  ORDER BY p.created_at ASC, p.id ASC",
             )
@@ -2462,6 +2465,147 @@ mod tests {
             )
             .unwrap();
         assert_eq!(exists, 1);
+    }
+
+    #[test]
+    fn archived_papers_are_excluded_from_pending_generation_and_fresh_reads() {
+        const ACTIVE_PAPER_QUERY: &str = "SELECT title FROM papers
+                 WHERE id = ?1 AND trashed_at IS NULL AND archived_at IS NULL";
+        const PENDING_PAPERS_QUERY: &str = "SELECT p.id
+                 FROM papers p
+                 LEFT JOIN paper_insights i ON i.paper_id = p.id
+                 WHERE p.trashed_at IS NULL
+                   AND p.archived_at IS NULL
+                   AND (i.paper_id IS NULL OR i.status IN ('queued', 'paused', 'generating'))
+                 ORDER BY p.created_at ASC, p.id ASC";
+
+        fn function_body<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+            source
+                .split_once(start)
+                .unwrap_or_else(|| panic!("missing production function marker: {start}"))
+                .1
+                .split_once(end)
+                .unwrap_or_else(|| panic!("missing next production function marker: {end}"))
+                .0
+        }
+
+        fn normalized(source: &str) -> String {
+            source.split_whitespace().collect::<Vec<_>>().join(" ")
+        }
+
+        let source = include_str!("research_insights.rs");
+        for (start, end) in [
+            ("fn load_paper_chunks(", "fn load_chapter_chunks("),
+            ("fn load_chapter_chunks(", "fn load_paper_page_count("),
+            ("fn load_paper_page_count(", "fn source_hash("),
+            (
+                "pub fn research_list_pending_paper_insights(",
+                "pub fn research_cancel_paper_insights(",
+            ),
+        ] {
+            assert!(
+                function_body(source, start, end).contains("archived_at IS NULL"),
+                "{start} must reject archived papers"
+            );
+        }
+
+        let load_paper_source = normalized(function_body(
+            source,
+            "fn load_paper_chunks(",
+            "fn load_chapter_chunks(",
+        ));
+        let active_query = normalized(ACTIVE_PAPER_QUERY);
+        let active_gate_position = load_paper_source
+            .find(&active_query)
+            .expect("load_paper_chunks must use the active-paper lookup");
+        let chunk_read_position = load_paper_source
+            .find("FROM document_chunks")
+            .expect("load_paper_chunks must read document chunks");
+        assert!(
+            active_gate_position < chunk_read_position,
+            "the archived-paper gate must run before reading document chunks"
+        );
+
+        let pending_source = normalized(function_body(
+            source,
+            "pub fn research_list_pending_paper_insights(",
+            "pub fn research_cancel_paper_insights(",
+        ));
+        assert!(
+            pending_source.contains(&normalized(PENDING_PAPERS_QUERY)),
+            "the pending-insights command must use the archived-paper filter"
+        );
+
+        let connection = rusqlite::Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "
+                CREATE TABLE papers (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    page_count INTEGER NOT NULL DEFAULT 1,
+                    trashed_at TEXT,
+                    archived_at TEXT,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE paper_insights (
+                    paper_id TEXT PRIMARY KEY,
+                    status TEXT NOT NULL
+                );
+                CREATE TABLE document_chunks (
+                    paper_id TEXT NOT NULL,
+                    page_number INTEGER NOT NULL,
+                    chunk_index INTEGER NOT NULL,
+                    section_title TEXT NOT NULL,
+                    content TEXT NOT NULL
+                );
+
+                INSERT INTO papers(id, title, trashed_at, archived_at, created_at)
+                VALUES
+                    ('active', 'Active paper', NULL, NULL, '2026-01-02'),
+                    ('archived', 'Archived paper', NULL, '2026-01-03', '2026-01-01');
+                INSERT INTO paper_insights(paper_id, status)
+                VALUES ('archived', 'queued');
+                INSERT INTO document_chunks(
+                    paper_id, page_number, chunk_index, section_title, content
+                )
+                VALUES ('archived', 1, 0, 'ABSTRACT', 'must not be read');
+                ",
+            )
+            .unwrap();
+
+        let archived_chunk_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM document_chunks WHERE paper_id = ?1",
+                ["archived"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(archived_chunk_count, 1);
+
+        let archived_title = connection
+            .query_row(ACTIVE_PAPER_QUERY, ["archived"], |row| {
+                row.get::<_, String>(0)
+            })
+            .optional()
+            .unwrap();
+        assert_eq!(archived_title, None);
+
+        let active_title = connection
+            .query_row(ACTIVE_PAPER_QUERY, ["active"], |row| {
+                row.get::<_, String>(0)
+            })
+            .optional()
+            .unwrap();
+        assert_eq!(active_title.as_deref(), Some("Active paper"));
+
+        let mut statement = connection.prepare(PENDING_PAPERS_QUERY).unwrap();
+        let pending = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(pending, vec!["active"]);
     }
 
     #[test]

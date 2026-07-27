@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
+    PiArrowClockwise,
     PiBrain,
     PiCheckCircle,
     PiCpu,
+    PiDownloadSimple,
     PiFloppyDisk,
     PiFolder,
     PiKeyboard,
@@ -24,6 +26,7 @@ import {
 } from './settings';
 import OllamaOnboardingCard from './OllamaOnboardingCard';
 import OllamaModelSelect from './OllamaModelSelect';
+import { APP_UPDATE_PHASE } from './useAppUpdater';
 import { UNIFIED_OLLAMA_MODEL } from '../../domains/ollama/runtime';
 import { desktopPlatform, formatShortcutForPlatform, getPlatformPresentation } from '../../utils/platform';
 
@@ -47,7 +50,25 @@ const SETTINGS_NAV = [
     ['speech', '朗读', PiSpeakerHigh],
     ['window', '窗口', PiMonitor],
     ['library', '文献存储', PiFolder],
+    ['updates', '软件更新', PiDownloadSimple],
 ];
+
+const BROWSER_UPDATER = Object.freeze({
+    runtime: false,
+    supported: false,
+    phase: APP_UPDATE_PHASE.IDLE,
+    currentVersion: '浏览器预览',
+    updateVersion: '',
+    notes: '',
+    progressPercent: null,
+    error: '',
+    errorKind: '',
+    hasChecked: false,
+    isChecking: false,
+    isInstalling: false,
+    checkForUpdates: () => Promise.resolve(null),
+    installUpdate: () => Promise.resolve(false),
+});
 
 function initialSettingsSection() {
     const requested = String(globalThis.location?.hash ?? '').replace(/^#settings-/u, '');
@@ -135,7 +156,56 @@ function HotkeyInput({ value, onChange, ariaLabel, platform }) {
     );
 }
 
-export default function SettingsPanel({ platform = desktopPlatform }) {
+function updaterStatusCopy(updater) {
+    if (!updater.runtime) {
+        return {
+            title: '仅桌面应用支持自动更新',
+            detail: '浏览器预览不会连接更新服务。',
+        };
+    }
+    if (updater.supported === false) {
+        return {
+            title: '当前平台暂不支持一键更新',
+            detail: '正式自动更新目前仅发布 Windows x64；请从 GitHub Actions 获取其他平台试验包。',
+        };
+    }
+    if (updater.error) {
+        return {
+            title: updater.errorKind === 'relaunch' ? '更新已安装，等待重启' : '更新操作未完成',
+            detail: updater.error,
+        };
+    }
+    if (updater.phase === APP_UPDATE_PHASE.CHECKING) {
+        return { title: '正在检查更新', detail: '正在连接 GitHub Releases…' };
+    }
+    if (updater.phase === APP_UPDATE_PHASE.UP_TO_DATE) {
+        return { title: '当前已是最新版本', detail: '没有发现可用的新版本。' };
+    }
+    if (updater.phase === APP_UPDATE_PHASE.AVAILABLE) {
+        return {
+            title: `发现新版本 ${updater.updateVersion}`,
+            detail: '更新包将先验证 Tauri 签名，再执行安装。',
+        };
+    }
+    if (updater.phase === APP_UPDATE_PHASE.DOWNLOADING) {
+        return {
+            title: `正在下载 ${updater.updateVersion}`,
+            detail: updater.progressPercent === null ? '下载进度暂不可用。' : `已完成 ${updater.progressPercent}%`,
+        };
+    }
+    if (updater.phase === APP_UPDATE_PHASE.INSTALLING) {
+        return { title: '正在安装更新', detail: '安装完成后应用将自动重启。' };
+    }
+    if (updater.phase === APP_UPDATE_PHASE.READY_TO_RELAUNCH) {
+        return { title: '更新已安装', detail: '点击“重新启动”完成更新。' };
+    }
+    if (updater.phase === APP_UPDATE_PHASE.RELAUNCHING) {
+        return { title: '正在重新启动', detail: '小允翻译将在片刻后重新打开。' };
+    }
+    return { title: '尚未检查更新', detail: '可随时手动检查 GitHub 上的最新正式版。' };
+}
+
+export default function SettingsPanel({ platform = desktopPlatform, updater = BROWSER_UPDATER }) {
     const platformPresentation = getPlatformPresentation(platform);
     const [settings, setSettings] = useState(() => mergeSettingsV2(DEFAULT_SETTINGS_V2));
     const [loading, setLoading] = useState(true);
@@ -314,6 +384,26 @@ export default function SettingsPanel({ platform = desktopPlatform }) {
 
     const ollamaHost = settings.ollama.translation.requestPath;
     const selectionShortcut = formatShortcutForPlatform(settings.hotkeys.selectionTranslate, platform);
+    const updateStatus = updaterStatusCopy(updater);
+    const UpdateStatusIcon = updater.error
+        ? PiWarningCircle
+        : updater.isChecking || updater.isInstalling
+          ? PiSpinnerGap
+          : updater.updateVersion
+            ? PiDownloadSimple
+            : PiCheckCircle;
+    const updateActionLabel =
+        updater.phase === APP_UPDATE_PHASE.READY_TO_RELAUNCH
+            ? '重新启动'
+            : updater.errorKind === 'install'
+              ? '重试更新'
+              : '立即更新';
+    const checkDisabled =
+        !updater.runtime ||
+        updater.supported === false ||
+        updater.isChecking ||
+        updater.isInstalling ||
+        updater.phase === APP_UPDATE_PHASE.READY_TO_RELAUNCH;
     return (
         <section className='main-page main-page--settings'>
             <header className='main-page__header main-page__header--settings'>
@@ -691,6 +781,94 @@ export default function SettingsPanel({ platform = desktopPlatform }) {
                                     的标注、笔记和索引单独保存在 research.db。
                                 </span>
                             </p>
+                        </div>
+                    </SettingSection>
+
+                    <SettingSection
+                        id='updates'
+                        Icon={PiDownloadSimple}
+                        title='软件更新'
+                        description='从 GitHub Release 检查并安装经过签名验证的正式版本；当前一键更新支持 Windows x64。'
+                        active={activeSection === 'updates'}
+                    >
+                        <div className='settings-update-summary'>
+                            <div className='settings-update-version'>
+                                <PiCheckCircle aria-hidden='true' />
+                                <div>
+                                    <strong>当前版本</strong>
+                                    <span>{updater.currentVersion || '正在读取…'}</span>
+                                </div>
+                            </div>
+                            <div
+                                className={`settings-update-status ${updater.error ? 'is-error' : ''}`}
+                                role='status'
+                                aria-live='polite'
+                            >
+                                <UpdateStatusIcon
+                                    className={updater.isChecking || updater.isInstalling ? 'is-spinning' : undefined}
+                                    aria-hidden='true'
+                                />
+                                <div>
+                                    <strong>{updateStatus.title}</strong>
+                                    <span>{updateStatus.detail}</span>
+                                </div>
+                            </div>
+                            {updater.updateVersion && updater.notes ? (
+                                <p className='settings-update-notes'>{updater.notes}</p>
+                            ) : null}
+                            {updater.phase === APP_UPDATE_PHASE.DOWNLOADING ? (
+                                <div className='settings-update-progress'>
+                                    <progress
+                                        aria-label='设置页更新下载进度'
+                                        value={updater.progressPercent ?? undefined}
+                                        max='100'
+                                    />
+                                    <span>
+                                        {updater.progressPercent === null ? '正在下载' : `${updater.progressPercent}%`}
+                                    </span>
+                                </div>
+                            ) : null}
+                            <div className='settings-update-actions'>
+                                <button
+                                    type='button'
+                                    onClick={() => void updater.checkForUpdates({ silent: false })}
+                                    disabled={checkDisabled}
+                                >
+                                    {updater.isChecking ? (
+                                        <PiSpinnerGap
+                                            className='is-spinning'
+                                            aria-hidden='true'
+                                        />
+                                    ) : (
+                                        <PiArrowClockwise aria-hidden='true' />
+                                    )}
+                                    {updater.isChecking
+                                        ? '检查中'
+                                        : updater.errorKind === 'check'
+                                          ? '重试检查'
+                                          : '检查更新'}
+                                </button>
+                                {updater.updateVersion ? (
+                                    <button
+                                        className='is-primary'
+                                        type='button'
+                                        onClick={() => void updater.installUpdate()}
+                                        disabled={updater.isChecking || updater.isInstalling}
+                                    >
+                                        {updater.isInstalling ? (
+                                            <PiSpinnerGap
+                                                className='is-spinning'
+                                                aria-hidden='true'
+                                            />
+                                        ) : updater.phase === APP_UPDATE_PHASE.READY_TO_RELAUNCH ? (
+                                            <PiArrowClockwise aria-hidden='true' />
+                                        ) : (
+                                            <PiDownloadSimple aria-hidden='true' />
+                                        )}
+                                        {updater.isInstalling ? '更新中' : updateActionLabel}
+                                    </button>
+                                ) : null}
+                            </div>
                         </div>
                     </SettingSection>
                 </div>

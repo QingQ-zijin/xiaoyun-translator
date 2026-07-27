@@ -6,7 +6,9 @@ import MainRail from './MainRail';
 import OllamaFirstRunGate from './OllamaFirstRunGate';
 import SettingsPanel from './SettingsPanel';
 import TranslationWorkspace from './TranslationWorkspace';
+import UpdateNotice from './UpdateNotice';
 import { initialMainRoute, normalizeRoute } from './navigation';
+import useAppUpdater from './useAppUpdater';
 import './main.css';
 
 function initialRoute() {
@@ -19,6 +21,7 @@ const isTauriRuntime = () =>
     );
 
 export default function Main() {
+    const updater = useAppUpdater();
     const [navigation, setNavigation] = useState(() => ({
         route: initialRoute(),
         researchSession: 0,
@@ -48,6 +51,7 @@ export default function Main() {
     return (
         <div className={`main-shell main-shell--${active}`}>
             <OllamaFirstRunGate />
+            <UpdateNotice updater={updater} />
             <MainRail
                 active={active}
                 onNavigate={navigate}
@@ -62,7 +66,7 @@ export default function Main() {
             ) : active === 'translate' ? (
                 <TranslationWorkspace onNavigate={navigate} />
             ) : (
-                <SettingsPanel />
+                <SettingsPanel updater={updater} />
             )}
         </div>
     );

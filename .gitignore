@@ -37,6 +37,8 @@ design-qa.md
 .env
 .env.*
 !.env.example
+*.key
+*-password.txt
 
 # 安装包由 GitHub Release 分发，不提交到源码仓库
 *.exe
