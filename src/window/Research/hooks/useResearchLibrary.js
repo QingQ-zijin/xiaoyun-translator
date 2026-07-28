@@ -18,7 +18,17 @@ import {
     unarchivePapers as unarchivePapersBridge,
     updateProject,
 } from '../../../domains/research/bridge';
-import { filterPapers } from '../../../domains/research/model';
+import { DEFAULT_PAPER_SORT, filterPapers, normalizePaperSort, sortPapers } from '../../../domains/research/model';
+
+const PAPER_SORT_STORAGE_KEY = 'xiaoyun.research.paper-sort.v1';
+
+function readPaperSortPreference() {
+    try {
+        return normalizePaperSort(globalThis.localStorage?.getItem(PAPER_SORT_STORAGE_KEY));
+    } catch {
+        return DEFAULT_PAPER_SORT;
+    }
+}
 
 export function useResearchLibrary() {
     const [papers, setPapers] = useState([]);
@@ -26,6 +36,7 @@ export function useResearchLibrary() {
     const [projects, setProjects] = useState([]);
     const [query, setQuery] = useState('');
     const [view, setView] = useState('all');
+    const [sortMode, setSortModeState] = useState(readPaperSortPreference);
     const [activeTagId, setActiveTagId] = useState('');
     const [activeProjectId, setActiveProjectId] = useState('');
     const [loading, setLoading] = useState(true);
@@ -55,9 +66,22 @@ export function useResearchLibrary() {
         void refresh();
     }, [refresh]);
 
+    useEffect(() => {
+        try {
+            globalThis.localStorage?.setItem(PAPER_SORT_STORAGE_KEY, sortMode);
+        } catch {
+            // WebView 禁用持久化时仍保留本次会话内的排序，不阻断论文库。
+        }
+    }, [sortMode]);
+
+    const setSortMode = useCallback((value) => {
+        setSortModeState(normalizePaperSort(value));
+    }, []);
+
     const visiblePapers = useMemo(
-        () => filterPapers(papers, { query, view, tagId: activeTagId, projectId: activeProjectId }),
-        [activeProjectId, activeTagId, papers, query, view]
+        () =>
+            sortPapers(filterPapers(papers, { query, view, tagId: activeTagId, projectId: activeProjectId }), sortMode),
+        [activeProjectId, activeTagId, papers, query, sortMode, view]
     );
 
     const importPaths = useCallback(
@@ -195,6 +219,13 @@ export function useResearchLibrary() {
         );
     }, []);
 
+    const markPaperOpened = useCallback((paperId) => {
+        const timestamp = new Date().toISOString();
+        setPapers((current) =>
+            current.map((paper) => (paper.id === paperId ? { ...paper, lastOpenedAt: timestamp } : paper))
+        );
+    }, []);
+
     const selectProject = useCallback((projectId) => {
         setActiveProjectId(projectId);
         setActiveTagId('');
@@ -210,6 +241,8 @@ export function useResearchLibrary() {
         setQuery,
         view,
         setView,
+        sortMode,
+        setSortMode,
         activeTagId,
         setActiveTagId,
         activeProjectId,
@@ -233,5 +266,6 @@ export function useResearchLibrary() {
         removeProject,
         updatePaperProjects,
         updatePaperProgress,
+        markPaperOpened,
     };
 }

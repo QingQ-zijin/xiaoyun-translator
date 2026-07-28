@@ -1899,6 +1899,82 @@
     font-size: 13px;
 }
 
+.paper-library__header-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.paper-sort-control {
+    height: 38px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 10px;
+    border: 1px solid var(--research-border);
+    border-radius: 9px;
+    background: #fff;
+    color: #666276;
+    box-shadow: 0 2px 8px rgba(37, 36, 50, 0.03);
+}
+
+.paper-sort-control svg {
+    width: 17px;
+    height: 17px;
+    flex: 0 0 auto;
+    color: var(--research-accent);
+}
+
+.paper-sort-control select {
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 11px;
+    font-weight: 650;
+    cursor: pointer;
+}
+
+.paper-library__quick-archive {
+    height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 0 13px;
+    border: 1px solid #d4cff1;
+    border-radius: 9px;
+    background: #f8f6ff;
+    color: #5d52a7;
+    font-size: 11px;
+    font-weight: 680;
+    cursor: pointer;
+    transition: 140ms ease;
+}
+
+.paper-library__quick-archive:hover:not(:disabled) {
+    border-color: #a89ee5;
+    background: #f1edff;
+    color: var(--research-accent);
+}
+
+.paper-library__quick-archive:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.paper-library__quick-archive svg {
+    width: 17px;
+    height: 17px;
+}
+
+.paper-library__quick-archive .is-spinning {
+    animation: research-spin 800ms linear infinite;
+}
+
 .research-error {
     padding: 11px 13px;
     border: 1px solid #f0c7c9;
@@ -2240,6 +2316,11 @@
 .paper-row__identity small {
     color: var(--research-muted);
     font-size: 10px;
+}
+
+.paper-row__identity .paper-row__dates {
+    color: #92909d;
+    font-size: 9px;
 }
 
 .paper-row__warning {
@@ -3727,6 +3808,15 @@
         padding: 28px 24px 50px;
     }
 
+    .paper-library__header {
+        flex-direction: column;
+    }
+
+    .paper-library__header-actions {
+        width: 100%;
+        justify-content: flex-start;
+    }
+
     .paper-list__head,
     .paper-row {
         grid-template-columns: 42px minmax(210px, 1fr) 100px 92px;
@@ -3744,7 +3834,6 @@
     .paper-batch-toolbar__actions {
         justify-content: flex-start;
     }
-
 }
 
 @media (max-width: 880px) {

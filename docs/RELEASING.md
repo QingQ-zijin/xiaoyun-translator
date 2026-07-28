@@ -42,8 +42,8 @@ cargo test --manifest-path src-tauri/Cargo.toml --all-targets
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
 git push origin main
-git tag v4.5.3
-git push origin v4.5.3
+git tag v4.5.4
+git push origin v4.5.4
 ```
 
 标签会触发 Windows Release 工作流。工作流会：

@@ -94,6 +94,8 @@ pub struct Paper {
     pub journal: String,
     pub year: Option<i64>,
     pub page_count: i64,
+    pub created_at: String,
+    pub last_opened_at: String,
     pub updated_at: String,
     pub trashed_at: Option<String>,
     pub archived_at: Option<String>,
@@ -1293,6 +1295,8 @@ fn paper_base_from_row(row: &Row<'_>) -> rusqlite::Result<(Paper, String)> {
             journal: row.get(3)?,
             year: row.get(4)?,
             page_count: row.get(5)?,
+            created_at: row.get(19)?,
+            last_opened_at: row.get(20)?,
             updated_at: row.get(6)?,
             trashed_at: row.get(7)?,
             archived_at: row.get(18)?,
@@ -1314,7 +1318,8 @@ const PAPER_SELECT: &str = r#"
            p.updated_at, p.trashed_at, p.managed_path, p.original_filename,
            p.source_format, p.document_type, p.content_kind, p.import_warning, p.tex_compiler,
            COALESCE(r.page_number, 1), COALESCE(r.scale, 1.25),
-           COALESCE(r.scroll_ratio, 0), p.archived_at
+           COALESCE(r.scroll_ratio, 0), p.archived_at, p.created_at,
+           COALESCE(r.updated_at, p.created_at)
     FROM papers p
     LEFT JOIN reading_progress r ON r.paper_id = p.id
 "#;
@@ -2588,9 +2593,26 @@ fn get_document_on(connection: &Connection, paper_id: &str) -> Result<PaperDocum
     })
 }
 
+fn touch_paper_opened_on(connection: &Connection, paper_id: &str) -> Result<String, String> {
+    let timestamp = now();
+    let updated = connection
+        .execute(
+            "UPDATE reading_progress SET updated_at = ?2 WHERE paper_id = ?1",
+            params![paper_id, timestamp],
+        )
+        .map_err(|error| error.to_string())?;
+    if updated == 0 {
+        return Err("论文不存在，无法记录最近打开时间".to_string());
+    }
+    Ok(timestamp)
+}
+
 #[tauri::command]
 pub fn research_get_document(paper_id: String) -> Result<PaperDocument, String> {
-    with_database(|connection| get_document_on(connection, &paper_id))
+    with_database(|connection| {
+        touch_paper_opened_on(connection, &paper_id)?;
+        get_document_on(connection, &paper_id)
+    })
 }
 
 fn finite_or_default(value: f64, minimum: f64, maximum: f64, default: f64) -> f64 {
@@ -4496,6 +4518,36 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["paper-b", "paper-a"]
         );
+    }
+
+    #[test]
+    fn opening_a_paper_persists_last_opened_time_and_exposes_sort_fields() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialise_schema(&connection).unwrap();
+        insert_reference_test_paper(&connection, "paper-a", "论文 A", "");
+        connection
+            .execute(
+                "UPDATE papers SET created_at = '2026-01-02T00:00:00Z' WHERE id = 'paper-a'",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO reading_progress(paper_id, page_number, scale, scroll_ratio, updated_at)
+                 VALUES ('paper-a', 2, 1.25, 0.1, '2000-01-01T00:00:00Z')",
+                [],
+            )
+            .unwrap();
+
+        let touched_at = touch_paper_opened_on(&connection, "paper-a").unwrap();
+        let document = get_document_on(&connection, "paper-a").unwrap();
+        assert_eq!(document.paper.created_at, "2026-01-02T00:00:00Z");
+        assert_eq!(document.paper.last_opened_at, touched_at);
+
+        let serialized = serde_json::to_value(&document.paper).unwrap();
+        assert_eq!(serialized["createdAt"], json!("2026-01-02T00:00:00Z"));
+        assert_eq!(serialized["lastOpenedAt"], json!(touched_at));
+        assert!(touch_paper_opened_on(&connection, "missing-paper").is_err());
     }
 
     #[test]

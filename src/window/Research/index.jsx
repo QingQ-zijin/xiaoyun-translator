@@ -585,9 +585,10 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
             setLexiconState({ loading: false, entry: null, error: '' });
             setAiState({ loading: false, answer: '', citations: [], error: '' });
             setDocument(null);
+            library.markPaperOpened?.(nextPaperId);
             setPaperId(nextPaperId);
         },
-        [invalidateSelectionTranslation]
+        [invalidateSelectionTranslation, library.markPaperOpened]
     );
 
     useEffect(() => {
@@ -1375,8 +1376,10 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                     importing={library.importing}
                     error={library.error || documentError}
                     isDragging={dragDepth > 0}
+                    sortMode={library.sortMode}
                     onImport={(paths) => handleImport(paths, browserImportKindRef.current)}
                     onChoose={handleChoosePapers}
+                    onSortModeChange={library.setSortMode}
                     onOpen={openPaper}
                     onDeletePermanently={library.deletePermanently}
                     onArchivePapers={library.archivePapers}

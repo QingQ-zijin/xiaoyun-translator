@@ -4,9 +4,18 @@
 export const PDF_SELECTION_DEBOUNCE_MS = 40;
 export const PDF_PAGE_OVERSCAN = 1;
 export const UNCLASSIFIED_PROJECT_ID = '__unclassified__';
+export const DEFAULT_PAPER_SORT = 'lastOpenedDesc';
+export const PAPER_SORT_OPTIONS = Object.freeze([
+    { value: 'lastOpenedDesc', label: '最近打开' },
+    { value: 'lastOpenedAsc', label: '最久未打开' },
+    { value: 'importedDesc', label: '最近导入' },
+    { value: 'importedAsc', label: '最早导入' },
+]);
 
 const MULTI_SPACE_RE = /\s+/gu;
 const TAG_NAME_COLLATOR = new Intl.Collator('zh-CN', { sensitivity: 'base' });
+const PAPER_TITLE_COLLATOR = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' });
+const PAPER_SORT_VALUES = new Set(PAPER_SORT_OPTIONS.map(({ value }) => value));
 
 export function normalizeSearchText(value) {
     return String(value ?? '')
@@ -51,6 +60,42 @@ export function filterPapers(papers, { query = '', view = 'all', tagId = '', pro
         );
         return searchKey.includes(normalizedQuery);
     });
+}
+
+export function normalizePaperSort(value) {
+    const normalized = String(value ?? '').trim();
+    return PAPER_SORT_VALUES.has(normalized) ? normalized : DEFAULT_PAPER_SORT;
+}
+
+function paperTimestamp(paper, fields) {
+    for (const field of fields) {
+        const timestamp = Date.parse(String(paper?.[field] ?? ''));
+        if (Number.isFinite(timestamp)) return timestamp;
+    }
+    return 0;
+}
+
+/**
+ * 论文排序始终返回新数组，避免筛选结果被原地修改。最近打开以数据库记录的
+ * lastOpenedAt 为准；旧数据缺少该字段时回退到导入时间和更新时间。
+ */
+export function sortPapers(papers, sortMode = DEFAULT_PAPER_SORT) {
+    const mode = normalizePaperSort(sortMode);
+    const imported = mode.startsWith('imported');
+    const ascending = mode.endsWith('Asc');
+    const fields = imported ? ['createdAt', 'updatedAt'] : ['lastOpenedAt', 'createdAt', 'updatedAt'];
+    return (Array.isArray(papers) ? papers : [])
+        .map((paper, index) => ({ paper, index, timestamp: paperTimestamp(paper, fields) }))
+        .sort((left, right) => {
+            const timeOrder = ascending ? left.timestamp - right.timestamp : right.timestamp - left.timestamp;
+            if (timeOrder) return timeOrder;
+            const titleOrder = PAPER_TITLE_COLLATOR.compare(
+                String(left.paper?.title ?? ''),
+                String(right.paper?.title ?? '')
+            );
+            return titleOrder || left.index - right.index;
+        })
+        .map(({ paper }) => paper);
 }
 
 export function shouldTranslateSelection(text) {

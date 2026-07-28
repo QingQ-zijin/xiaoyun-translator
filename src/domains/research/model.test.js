@@ -11,6 +11,7 @@ import {
     normalizeAnnotationTags,
     PDF_SELECTION_DEBOUNCE_MS,
     researchJobProgress,
+    sortPapers,
     summarizeAnnotations,
     shouldTranslateSelection,
     shouldConfirmEmbeddingInstall,
@@ -56,6 +57,21 @@ test('论文检索同时匹配标题、作者、年份和标签，并隔离归�
     assert.deepEqual(
         filterPapers(papers, { view: 'trash' }).map((paper) => paper.id),
         ['p4', 'p5']
+    );
+});
+
+test('论文可按最近打开与导入日期排序', () => {
+    const dated = [
+        { id: 'a', title: 'A', createdAt: '2026-07-20T00:00:00Z', lastOpenedAt: '2026-07-21T00:00:00Z' },
+        { id: 'b', title: 'B', createdAt: '2026-07-10T00:00:00Z', lastOpenedAt: '2026-07-27T00:00:00Z' },
+    ];
+    assert.deepEqual(
+        sortPapers(dated, 'lastOpenedDesc').map((paper) => paper.id),
+        ['b', 'a']
+    );
+    assert.deepEqual(
+        sortPapers(dated, 'importedDesc').map((paper) => paper.id),
+        ['a', 'b']
     );
 });
 

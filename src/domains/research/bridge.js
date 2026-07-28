@@ -40,6 +40,7 @@ function documentMetadata(path) {
 
 function normalizeDemoPaper(paper) {
     const metadata = documentMetadata(paper?.sourcePath || paper?.path || `${paper?.title ?? 'paper'}.pdf`);
+    const createdAt = String(paper?.createdAt ?? paper?.updatedAt ?? now());
     return {
         ...paper,
         contentKind: normalizeContentKind(paper?.contentKind),
@@ -50,6 +51,8 @@ function normalizeDemoPaper(paper) {
         sourcePath: String(paper?.sourcePath ?? paper?.path ?? ''),
         archivedAt: paper?.archivedAt ?? null,
         trashedAt: paper?.trashedAt ?? null,
+        createdAt,
+        lastOpenedAt: String(paper?.lastOpenedAt ?? createdAt),
         projects: paper?.projects ?? [],
     };
 }
@@ -282,6 +285,7 @@ export async function importPapers(paths, contentKind = 'paper') {
             metadata.documentType === 'pdf'
                 ? ''
                 : `# ${title}\n\n这是演示模式中的 ${metadata.sourceFormat.toLocaleUpperCase()} 文献内容。`;
+        const timestamp = now();
         return normalizeDemoPaper({
             id: createId('demo-paper'),
             title,
@@ -294,7 +298,9 @@ export async function importPapers(paths, contentKind = 'paper') {
             ...metadata,
             textContent,
             importWarning: '',
-            updatedAt: now(),
+            createdAt: timestamp,
+            lastOpenedAt: timestamp,
+            updatedAt: timestamp,
             progress: { pageNumber: 1, scale: 1.25, scrollRatio: 0 },
             tags: [],
             projects: [],
@@ -374,6 +380,8 @@ export async function createTag(name, color = '#7664e9') {
 
 export async function getDocument(paperId) {
     if (isTauriRuntime()) return invokeResearch('research_get_document', { paperId });
+    const timestamp = now();
+    demoPapers = demoPapers.map((item) => (item.id === paperId ? { ...item, lastOpenedAt: timestamp } : item));
     const paper = demoPapers.find((item) => item.id === paperId) ?? demoPapers[0];
     return clone({
         ...DEMO_DOCUMENT,
@@ -402,7 +410,10 @@ export function getPdfSource(document) {
 
 export async function saveReadingProgress(paperId, progress) {
     if (isTauriRuntime()) return invokeResearch('research_save_progress', { paperId, ...progress });
-    demoPapers = demoPapers.map((paper) => (paper.id === paperId ? { ...paper, progress } : paper));
+    const timestamp = now();
+    demoPapers = demoPapers.map((paper) =>
+        paper.id === paperId ? { ...paper, progress, lastOpenedAt: timestamp, updatedAt: timestamp } : paper
+    );
 }
 
 export async function updateDocumentPageCount(paperId, pageCount) {

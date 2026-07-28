@@ -8,10 +8,12 @@ import {
     filterPapers,
     getVirtualPageWindow,
     normalizeSearchText,
+    normalizePaperSort,
     normalizeAnnotationTags,
     normalizeSelectionRects,
     PDF_SELECTION_DEBOUNCE_MS,
     researchJobProgress,
+    sortPapers,
     shouldTranslateSelection,
     shouldConfirmEmbeddingInstall,
     summarizeAnnotations,
@@ -56,6 +58,42 @@ describe('论文阅读纯函数', () => {
         expect(filterPapers(papers, { query: '代谢研究' }).map((paper) => paper.id)).toEqual(['a']);
         expect(filterPapers(null)).toEqual([]);
         expect(filterPapers(papers, { query: 'missing', view: 'all' })).toEqual([]);
+    });
+
+    it('按最近打开与导入时间稳定排序且不修改原数组', () => {
+        const papers = [
+            {
+                id: 'old-open-new-import',
+                title: 'B',
+                createdAt: '2026-07-20T00:00:00Z',
+                lastOpenedAt: '2026-07-21T00:00:00Z',
+            },
+            {
+                id: 'new-open-old-import',
+                title: 'A',
+                createdAt: '2026-07-10T00:00:00Z',
+                lastOpenedAt: '2026-07-27T00:00:00Z',
+            },
+            { id: 'legacy', title: 'C', updatedAt: '2026-07-01T00:00:00Z' },
+        ];
+
+        expect(sortPapers(papers).map((paper) => paper.id)).toEqual([
+            'new-open-old-import',
+            'old-open-new-import',
+            'legacy',
+        ]);
+        expect(sortPapers(papers, 'importedDesc').map((paper) => paper.id)).toEqual([
+            'old-open-new-import',
+            'new-open-old-import',
+            'legacy',
+        ]);
+        expect(sortPapers(papers, 'importedAsc').map((paper) => paper.id)).toEqual([
+            'legacy',
+            'new-open-old-import',
+            'old-open-new-import',
+        ]);
+        expect(papers.map((paper) => paper.id)).toEqual(['old-open-new-import', 'new-open-old-import', 'legacy']);
+        expect(normalizePaperSort('invalid')).toBe('lastOpenedDesc');
     });
 
     it('创建可重锚定的选区并归一化矩形', () => {

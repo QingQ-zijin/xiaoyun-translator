@@ -27,9 +27,24 @@ import { useResearchLibrary } from './useResearchLibrary';
 describe('论文库项目数据流', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        window.localStorage.clear();
         bridge.listPapers.mockResolvedValue([
-            { id: 'paper-1', title: 'Flux', projects: [{ id: 'project-1', name: '代谢' }], tags: [] },
-            { id: 'paper-2', title: 'Unsorted', projects: [], tags: [] },
+            {
+                id: 'paper-1',
+                title: 'Flux',
+                createdAt: '2026-07-20T00:00:00Z',
+                lastOpenedAt: '2026-07-21T00:00:00Z',
+                projects: [{ id: 'project-1', name: '代谢' }],
+                tags: [],
+            },
+            {
+                id: 'paper-2',
+                title: 'Unsorted',
+                createdAt: '2026-07-10T00:00:00Z',
+                lastOpenedAt: '2026-07-27T00:00:00Z',
+                projects: [],
+                tags: [],
+            },
         ]);
         bridge.listTags.mockResolvedValue([]);
         bridge.listProjects.mockResolvedValue([{ id: 'project-1', name: '代谢', color: '#8170df' }]);
@@ -52,6 +67,20 @@ describe('论文库项目数据流', () => {
         expect(result.current.visiblePapers.map((paper) => paper.id)).toEqual(['paper-1']);
         expect(result.current.view).toBe('all');
         expect(result.current.activeTagId).toBe('');
+    });
+
+    it('默认按最近打开排序，可切换到导入日期并记住选择', async () => {
+        const { result } = renderHook(() => useResearchLibrary());
+        await waitFor(() => expect(result.current.loading).toBe(false));
+        expect(result.current.visiblePapers.map((paper) => paper.id)).toEqual(['paper-2', 'paper-1']);
+
+        act(() => result.current.setSortMode('importedDesc'));
+        expect(result.current.visiblePapers.map((paper) => paper.id)).toEqual(['paper-1', 'paper-2']);
+        expect(window.localStorage.getItem('xiaoyun.research.paper-sort.v1')).toBe('importedDesc');
+
+        act(() => result.current.markPaperOpened('paper-1'));
+        act(() => result.current.setSortMode('lastOpenedDesc'));
+        expect(result.current.visiblePapers[0].id).toBe('paper-1');
     });
 
     it('调用项目增改删与论文归类接口', async () => {

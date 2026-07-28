@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
     PiArchive,
+    PiArrowsDownUp,
     PiArrowClockwise,
     PiArrowSquareIn,
     PiBookOpenText,
@@ -17,7 +18,7 @@ import {
     PiX,
 } from 'react-icons/pi';
 
-import { UNCLASSIFIED_PROJECT_ID } from '../../../domains/research/model';
+import { PAPER_SORT_OPTIONS, UNCLASSIFIED_PROJECT_ID } from '../../../domains/research/model';
 
 const IMPORT_ACCEPT =
     'application/pdf,.pdf,text/markdown,.md,.markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,application/x-tex,.tex';
@@ -44,6 +45,15 @@ function formatArchivedDate(value) {
     if (isoDate) return `${isoDate[1]}-${isoDate[2]}-${isoDate[3]}`;
     const date = new Date(text);
     return Number.isNaN(date.getTime()) ? '日期未知' : date.toLocaleDateString('zh-CN');
+}
+
+function formatLibraryDate(value) {
+    const text = String(value ?? '').trim();
+    if (!text) return '';
+    const isoDate = text.match(/^(\d{4})-(\d{2})-(\d{2})/u);
+    if (isoDate) return `${isoDate[1]}-${isoDate[2]}-${isoDate[3]}`;
+    const date = new Date(text);
+    return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('zh-CN');
 }
 
 function PaperTagMenu({ paper, tags, onChange, onClose }) {
@@ -151,8 +161,10 @@ export default function PaperLibrary({
     importing = false,
     error,
     isDragging,
+    sortMode,
     onImport,
     onChoose,
+    onSortModeChange,
     onOpen,
     onDeletePermanently,
     onArchivePapers,
@@ -177,6 +189,7 @@ export default function PaperLibrary({
     const allSelected = visiblePaperIds.length > 0 && selectedVisiblePaperIds.length === visiblePaperIds.length;
     const partlySelected = selectedVisiblePaperIds.length > 0 && !allSelected;
     const lifecycleBusy = Boolean(lifecycleAction);
+    const quickArchiveUnavailable = visiblePaperIds.length > 500;
 
     useEffect(() => {
         const viewChanged = previousViewRef.current !== view;
@@ -258,6 +271,14 @@ export default function PaperLibrary({
             paperIds: [paperId],
         });
 
+    const runQuickArchive = () =>
+        runLifecycleAction({
+            action: 'quick:archive',
+            handler: onArchivePapers,
+            paperIds: visiblePaperIds,
+            clearSelection: true,
+        });
+
     return (
         <main className={`paper-library ${isDragging ? 'is-dragging' : ''}`}>
             <input
@@ -287,17 +308,62 @@ export default function PaperLibrary({
                               : '本地保存、阅读并用 Ollama 理解你的论文与书籍。'}
                     </p>
                 </div>
-                {!['trash', 'archive'].includes(view) ? (
-                    <button
-                        className='primary-button'
-                        type='button'
-                        onClick={onChoose}
-                        disabled={importing}
-                    >
-                        <PiUploadSimple aria-hidden='true' />
-                        {importing ? '正在导入…' : '导入文献'}
-                    </button>
-                ) : null}
+                <div className='paper-library__header-actions'>
+                    {papers.length ? (
+                        <label className='paper-sort-control'>
+                            <PiArrowsDownUp aria-hidden='true' />
+                            <span className='visually-hidden'>文献排序</span>
+                            <select
+                                aria-label='文献排序方式'
+                                value={sortMode}
+                                onChange={(event) => onSortModeChange?.(event.target.value)}
+                            >
+                                {PAPER_SORT_OPTIONS.map((option) => (
+                                    <option
+                                        key={option.value}
+                                        value={option.value}
+                                    >
+                                        {option.label}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                    ) : null}
+                    {!['trash', 'archive'].includes(view) && papers.length ? (
+                        <button
+                            className='paper-library__quick-archive'
+                            type='button'
+                            disabled={lifecycleBusy || quickArchiveUnavailable}
+                            title={
+                                quickArchiveUnavailable
+                                    ? '当前结果超过 500 篇，请缩小筛选范围后再归档'
+                                    : `归档当前筛选结果中的 ${visiblePaperIds.length} 篇文献`
+                            }
+                            onClick={() => void runQuickArchive()}
+                        >
+                            {lifecycleAction === 'quick:archive' ? (
+                                <PiSpinnerGap
+                                    className='is-spinning'
+                                    aria-hidden='true'
+                                />
+                            ) : (
+                                <PiArchive aria-hidden='true' />
+                            )}
+                            一键归档当前结果
+                        </button>
+                    ) : null}
+                    {!['trash', 'archive'].includes(view) ? (
+                        <button
+                            className='primary-button'
+                            type='button'
+                            onClick={onChoose}
+                            disabled={importing}
+                        >
+                            <PiUploadSimple aria-hidden='true' />
+                            {importing ? '正在导入…' : '导入文献'}
+                        </button>
+                    ) : null}
+                </div>
             </header>
 
             {lifecycleError || error ? (
@@ -449,6 +515,8 @@ export default function PaperLibrary({
                     </div>
                     {papers.map((paper) => {
                         const { Icon: DocumentIcon, label: formatLabel, kindLabel } = documentAppearance(paper);
+                        const importedDate = formatLibraryDate(paper.createdAt);
+                        const lastOpenedDate = formatLibraryDate(paper.lastOpenedAt);
                         const progress = Math.round(
                             ((paper.progress?.pageNumber ?? 1) / Math.max(1, paper.pageCount ?? 1)) * 100
                         );
@@ -497,6 +565,16 @@ export default function PaperLibrary({
                                                 .filter(Boolean)
                                                 .join(' · ')}
                                         </small>
+                                        {importedDate || lastOpenedDate ? (
+                                            <small className='paper-row__dates'>
+                                                {[
+                                                    importedDate ? `导入 ${importedDate}` : '',
+                                                    lastOpenedDate ? `最近打开 ${lastOpenedDate}` : '',
+                                                ]
+                                                    .filter(Boolean)
+                                                    .join(' · ')}
+                                            </small>
+                                        ) : null}
                                         {paper.importWarning ? (
                                             <em className='paper-row__warning'>{paper.importWarning}</em>
                                         ) : null}
@@ -546,11 +624,7 @@ export default function PaperLibrary({
                                                 aria-label='恢复论文'
                                                 disabled={lifecycleBusy}
                                                 onClick={() =>
-                                                    void runSingleAction(
-                                                        'restore',
-                                                        onRestorePapers,
-                                                        String(paper.id)
-                                                    )
+                                                    void runSingleAction('restore', onRestorePapers, String(paper.id))
                                                 }
                                             >
                                                 {lifecycleAction === `paper:restore:${paper.id}` ? (
@@ -674,11 +748,7 @@ export default function PaperLibrary({
                                                 aria-label={`移到回收站《${paper.title}》`}
                                                 disabled={lifecycleBusy}
                                                 onClick={() =>
-                                                    void runSingleAction(
-                                                        'trash',
-                                                        onMovePapersToTrash,
-                                                        String(paper.id)
-                                                    )
+                                                    void runSingleAction('trash', onMovePapersToTrash, String(paper.id))
                                                 }
                                             >
                                                 {lifecycleAction === `paper:trash:${paper.id}` ? (

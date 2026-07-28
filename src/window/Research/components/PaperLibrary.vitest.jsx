@@ -34,6 +34,7 @@ function renderLifecycleLibrary(overrides = {}) {
         projects: [],
         view: 'all',
         loading: false,
+        sortMode: 'lastOpenedDesc',
         onOpen: vi.fn(),
         onMoveToTrash: vi.fn(),
         onRestore: vi.fn(),
@@ -274,6 +275,46 @@ describe('论文库项目归类', () => {
         resolveArchive();
         await waitFor(() => expect(screen.queryByRole('toolbar', { name: '批量管理文献' })).toBeNull());
         expect(screen.getByRole('checkbox', { name: '选择《Metabolic Flux》' }).checked).toBe(false);
+    });
+
+    it('一键归档当前筛选结果，不需要先勾选且会阻止重复提交', async () => {
+        let resolveArchive;
+        const archiveRequest = new Promise((resolve) => {
+            resolveArchive = resolve;
+        });
+        const onArchivePapers = vi.fn(() => archiveRequest);
+        renderLifecycleLibrary({ onArchivePapers });
+
+        const archiveButton = screen.getByRole('button', { name: '一键归档当前结果' });
+        fireEvent.click(archiveButton);
+        fireEvent.click(archiveButton);
+
+        expect(onArchivePapers).toHaveBeenCalledOnce();
+        expect(onArchivePapers).toHaveBeenCalledWith(['paper-a', 'paper-b']);
+        expect(archiveButton.disabled).toBe(true);
+        resolveArchive();
+        await waitFor(() => expect(archiveButton.disabled).toBe(false));
+    });
+
+    it('切换最近打开与导入日期排序并显示时间依据', () => {
+        const onSortModeChange = vi.fn();
+        renderLifecycleLibrary({
+            papers: [
+                {
+                    ...lifecyclePapers[0],
+                    createdAt: '2026-07-20T00:00:00Z',
+                    lastOpenedAt: '2026-07-27T00:00:00Z',
+                },
+            ],
+            sortMode: 'lastOpenedDesc',
+            onSortModeChange,
+        });
+
+        fireEvent.change(screen.getByRole('combobox', { name: '文献排序方式' }), {
+            target: { value: 'importedAsc' },
+        });
+        expect(onSortModeChange).toHaveBeenCalledWith('importedAsc');
+        expect(screen.getByText('导入 2026-07-20 · 最近打开 2026-07-27')).toBeTruthy();
     });
 
     it('批量失败时保留选择和错误提示，可重试成功', async () => {
