@@ -23,9 +23,9 @@
 
    ```powershell
    Get-Content -Raw "$HOME\.tauri\xiaoyun-updater.key" |
-     gh secret set TAURI_SIGNING_PRIVATE_KEY --repo Xiaoyun-0922/xiaoyun-translator
+     gh secret set TAURI_SIGNING_PRIVATE_KEY --repo QingQ-zijin/xiaoyun-translator
    Get-Content -Raw "$HOME\.tauri\xiaoyun-updater-password.txt" |
-     gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --repo Xiaoyun-0922/xiaoyun-translator
+     gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --repo QingQ-zijin/xiaoyun-translator
    ```
 
 4. 至少在另一处离线备份私钥和密码。丢失私钥后，已经安装的客户端无法信任用新密钥签名的更新，只能重新手动安装。

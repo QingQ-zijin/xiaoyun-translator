@@ -4,7 +4,7 @@
 
 -   上游项目：Pot Desktop
 -   上游作者与贡献者：见 Pot 项目的 Git 历史及版权声明
--   本项目维护者：Xiaoyun-0922
+-   本项目维护者：QingQ-zijin
 -   主要改造：Windows/macOS/Linux 桌面适配、本地 Ollama 学术翻译、划词与截图翻译、PDF/文档阅读器、论文与书籍知识整理、笔记/摘录/项目管理及小允品牌界面
 
 本项目及其修改代码按 `GPL-3.0-only` 发布，完整条款见 [LICENSE](LICENSE)。发布的安装包与对应版本源码使用同一个 Git tag。

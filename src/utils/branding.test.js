@@ -14,7 +14,7 @@ test('用户可见品牌统一为小允翻译并保留原配置目录', () => {
     assert.equal(tauriConfig.identifier, 'com.pot-app.desktop');
     assert.equal(tauriConfig.bundle.shortDescription, '小允翻译与 AI 论文阅读器');
     assert.deepEqual(tauriConfig.plugins?.updater?.endpoints, [
-        'https://github.com/Xiaoyun-0922/xiaoyun-translator/releases/latest/download/latest.json',
+        'https://github.com/QingQ-zijin/xiaoyun-translator/releases/latest/download/latest.json',
     ]);
     assert.match(tauriConfig.plugins?.updater?.pubkey ?? '', /^[A-Za-z0-9+/=]{100,}$/u);
     assert.equal(tauriConfig.plugins?.updater?.windows?.installMode, 'passive');

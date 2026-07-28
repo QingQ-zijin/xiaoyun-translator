@@ -17,7 +17,7 @@ Ollama 是一个**需要单独安装、在后台运行的本地 AI 程序**。�
 
 按以下步骤完成一次可见的成功验证：
 
-1. 从 [最新 Release](https://github.com/Xiaoyun-0922/xiaoyun-translator/releases/latest) 下载并安装 `xiaoyun-translator_*_x64-setup.exe`。
+1. 从 [最新 Release](https://github.com/QingQ-zijin/xiaoyun-translator/releases/latest) 下载并安装 `xiaoyun-translator_*_x64-setup.exe`。
 2. 首次打开小允翻译会出现“先接入本地 Ollama”。点击向导中的主按钮，完成 [Ollama Windows 官方安装](https://ollama.com/download/windows)。
 3. 返回小允翻译。向导会自动检测 Ollama 并启动本地服务；你只需点击“下载 Gemma 4 E4B（约 6.1 GB）”并确认。保持网络连接，等待“本地 AI 已准备好”，再点击“开始使用”。
 4. 打开 Windows 记事本，输入并选中 `Hello, world.`，按 `Ctrl+D`。出现中文翻译浮窗即表示接入成功；第一次请求需要加载模型，可能比后续翻译慢。
@@ -52,7 +52,7 @@ Windows 版本暂时沿用 Pot 的 `com.pot-app.desktop` bundle identifier，以
 
 ### 2.1 Windows 10 22H2/11 Release
 
-1. 打开[最新 Release](https://github.com/Xiaoyun-0922/xiaoyun-translator/releases/latest)。
+1. 打开[最新 Release](https://github.com/QingQ-zijin/xiaoyun-translator/releases/latest)。
 2. 下载 `xiaoyun-translator_*_x64-setup.exe`。
 3. 对照 Release 页面提供的 SHA-256 校验值。
 4. 双击安装。
@@ -180,7 +180,7 @@ TeX 可在“设置 → 文献存储”选择 `auto`、Tectonic、XeLaTeX、pdfL
 应用启动后会在后台静默检查 GitHub Release，不会阻塞论文库或翻译。发现新版本时，界面会显示更新提示；也可以进入“设置 → 软件更新”手动检查。
 
 点击“立即更新”后，应用会显示下载进度，验证更新签名，安装完成后自动重启。若当前版本早于首个内置更新器的桥接版本，需要先从
-[最新 Release](https://github.com/Xiaoyun-0922/xiaoyun-translator/releases/latest) 手动安装一次，之后即可使用应用内更新。
+[最新 Release](https://github.com/QingQ-zijin/xiaoyun-translator/releases/latest) 手动安装一次，之后即可使用应用内更新。
 
 当前正式一键更新支持 Windows x64。更新失败不会影响现有版本继续使用；请检查网络后重试，或从 Release 页面手动下载安装包。
 
@@ -195,4 +195,4 @@ TeX 可在“设置 → 文献存储”选择 `auto`、Tectonic、XeLaTeX、pdfL
 -   不含隐私数据的截图；
 -   示例文档是否为扫描件、是否加密、页数和大小。
 
-Issue 地址：[Xiaoyun-0922/xiaoyun-translator/issues](https://github.com/Xiaoyun-0922/xiaoyun-translator/issues)
+Issue 地址：[QingQ-zijin/xiaoyun-translator/issues](https://github.com/QingQ-zijin/xiaoyun-translator/issues)

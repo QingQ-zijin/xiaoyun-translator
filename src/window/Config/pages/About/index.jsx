@@ -4,7 +4,7 @@ import { open } from '@tauri-apps/plugin-shell';
 
 import { appVersion } from '../../../../utils/env';
 
-const REPOSITORY_URL = 'https://github.com/Xiaoyun-0922/xiaoyun-translator';
+const REPOSITORY_URL = 'https://github.com/QingQ-zijin/xiaoyun-translator';
 
 export default function About() {
     return (

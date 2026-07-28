@@ -3,7 +3,7 @@
   <h1>小允翻译</h1>
   <p><strong>把划词翻译、公式 OCR 与本地 AI 文献阅读放进同一个桌面工作台。</strong></p>
   <p>
-    <a href="https://github.com/Xiaoyun-0922/xiaoyun-translator/releases/latest">下载 Windows 版</a>
+    <a href="https://github.com/QingQ-zijin/xiaoyun-translator/releases/latest">下载 Windows 版</a>
     · <a href="./docs/GETTING_STARTED.md">快速上手</a>
     · <a href="./docs/CROSS_PLATFORM.md">跨平台状态</a>
     · <a href="./docs/OLLAMA.md">Ollama 接入</a>
@@ -26,7 +26,7 @@ Ollama 是一个**独立安装、在后台运行的本地 AI 程序**。小允�
 
 开始前请确认：Windows 10 22H2 或 Windows 11 x64、16 GB 以上内存，以及至少 12 GB 可用磁盘空间（推荐 15 GB）。
 
-1. 从 [Releases](https://github.com/Xiaoyun-0922/xiaoyun-translator/releases/latest) 下载 `xiaoyun-translator_*_x64-setup.exe` 并安装。若 SmartScreen 拦截，请先核对下载来源和 Release 中的 SHA-256，再选择“更多信息 → 仍要运行”。
+1. 从 [Releases](https://github.com/QingQ-zijin/xiaoyun-translator/releases/latest) 下载 `xiaoyun-translator_*_x64-setup.exe` 并安装。若 SmartScreen 拦截，请先核对下载来源和 Release 中的 SHA-256，再选择“更多信息 → 仍要运行”。
 2. 首次打开小允翻译会出现“先接入本地 Ollama”。点击向导中的主按钮，完成 [Ollama Windows 官方安装](https://ollama.com/download/windows)；安装程序通常会让 Ollama 在后台运行。
 3. 返回小允翻译。向导会自动检测 Ollama 并启动本地服务；你只需确认“下载 Gemma 4 E4B（约 6.1 GB）”。等待“本地 AI 已准备好”，再点击“开始使用”。
 4. 打开 Windows 记事本，输入并选中 `Hello, world.`，按 `Ctrl+D`；出现中文翻译浮窗即表示接入成功。
@@ -134,7 +134,7 @@ Windows Release 当前未签名，这是已知发布限制。只从本仓库 Rel
 ## 开发
 
 ```powershell
-git clone https://github.com/Xiaoyun-0922/xiaoyun-translator.git
+git clone https://github.com/QingQ-zijin/xiaoyun-translator.git
 cd xiaoyun-translator
 pnpm install
 pnpm test

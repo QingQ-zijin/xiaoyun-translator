@@ -6,9 +6,9 @@
     "license": "GPL-3.0-only",
     "repository": {
         "type": "git",
-        "url": "https://github.com/Xiaoyun-0922/xiaoyun-translator.git"
+        "url": "https://github.com/QingQ-zijin/xiaoyun-translator.git"
     },
-    "homepage": "https://github.com/Xiaoyun-0922/xiaoyun-translator",
+    "homepage": "https://github.com/QingQ-zijin/xiaoyun-translator",
     "packageManager": "pnpm@10.18.1",
     "engines": {
         "node": ">=22.12"

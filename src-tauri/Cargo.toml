@@ -4,7 +4,7 @@ version = "4.5.4"
 description = "小允翻译：本地学术翻译与 AI 论文阅读器"
 authors = ["Xiaoyun"]
 license = "GPL-3.0-only"
-repository = "https://github.com/Xiaoyun-0922/xiaoyun-translator"
+repository = "https://github.com/QingQ-zijin/xiaoyun-translator"
 edition = "2021"
 default-run = "pot"
 
