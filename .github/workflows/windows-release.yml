@@ -130,12 +130,13 @@ jobs:
                       throw 'The release must remain a draft until all updater assets are validated.'
                   }
                   $assetNames = @($release.assets | ForEach-Object { $_.name })
-                  $installerAssets = @($assetNames | Where-Object { $_ -like 'xiaoyun-translator_*-setup.exe' })
-                  $latestAssets = @($assetNames | Where-Object { $_ -eq 'latest.json' })
+                  $installerAssets = @($release.assets | Where-Object { $_.name -like 'xiaoyun-translator_*-setup.exe' })
+                  $latestAssets = @($release.assets | Where-Object { $_.name -eq 'latest.json' })
                   if ($installerAssets.Count -ne 1 -or $latestAssets.Count -ne 1) {
                       throw "Expected one installer and latest.json; assets: $($assetNames -join ', ')"
                   }
-                  $installerAsset = $installerAssets[0]
+                  $installerAssetData = $installerAssets[0]
+                  $installerAsset = [string]$installerAssetData.name
                   $signatureAsset = "$installerAsset.sig"
                   if (@($assetNames | Where-Object { $_ -eq $signatureAsset }).Count -ne 1) {
                       throw "Updater signature asset is missing: $signatureAsset"
@@ -151,12 +152,34 @@ jobs:
                       $latest.platforms.PSObject.Properties |
                           Where-Object { $_.Name -match '^windows-x86_64' }
                   )
-                  if ($windowsPlatforms.Count -ne 1) {
-                      throw 'latest.json must contain exactly one Windows x86_64 platform.'
+                  if ($windowsPlatforms.Count -lt 1) {
+                      throw 'latest.json must contain a Windows x86_64 platform.'
                   }
-                  $platform = $windowsPlatforms[0].Value
+                  $platformProperty = $windowsPlatforms |
+                      Where-Object { $_.Name -eq 'windows-x86_64-nsis' } |
+                      Select-Object -First 1
+                  if ($null -eq $platformProperty) {
+                      $platformProperty = $windowsPlatforms |
+                          Where-Object { $_.Name -eq 'windows-x86_64' } |
+                          Select-Object -First 1
+                  }
+                  if ($null -eq $platformProperty) {
+                      throw "latest.json has unsupported Windows platform keys: $($windowsPlatforms.Name -join ', ')"
+                  }
+                  $platform = $platformProperty.Value
+                  $conflictingPlatforms = @(
+                      $windowsPlatforms |
+                          Where-Object {
+                              ([string]$_.Value.url -ne [string]$platform.url) -or
+                              ([string]$_.Value.signature).Trim() -ne ([string]$platform.signature).Trim()
+                          }
+                  )
+                  if ($conflictingPlatforms.Count -gt 0) {
+                      throw 'latest.json Windows platform aliases do not point to the same signed installer.'
+                  }
                   $decodedUrl = [Uri]::UnescapeDataString([string]$platform.url)
-                  if (-not $decodedUrl.EndsWith("/$installerAsset")) {
+                  $installerApiUrl = [string]$installerAssetData.apiUrl
+                  if ($decodedUrl -ne $installerApiUrl -and -not $decodedUrl.EndsWith("/$installerAsset")) {
                       throw "latest.json points to an unexpected installer: $decodedUrl"
                   }
                   $signature = (Get-Content -Raw (Join-Path $validationDir $signatureAsset)).Trim()
