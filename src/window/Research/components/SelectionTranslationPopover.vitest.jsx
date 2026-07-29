@@ -72,7 +72,7 @@ describe('论文划词翻译浮窗', () => {
 
         expect(handlers.onTargetLanguageChange).toHaveBeenCalledWith('en');
         expect(handlers.onCopy).toHaveBeenCalledWith('译文');
-        expect(handlers.onSpeak).toHaveBeenCalledWith('译文');
+        expect(handlers.onSpeak).toHaveBeenCalledWith('source', { source: true });
         expect(handlers.onHighlight).toHaveBeenCalledOnce();
         expect(handlers.onHighlight).toHaveBeenCalledWith({ kind: 'highlight', color: 'blue' });
         expect(handlers.onSaveExcerpt).toHaveBeenCalledWith({ kind: 'excerpt', lexicon: null });
@@ -160,6 +160,46 @@ describe('论文划词翻译浮窗', () => {
 
         expect(screen.getByRole('alert').textContent).toBe('无法连接本地 Ollama');
         expect(screen.queryByText('暂无译文。')).toBeNull();
+    });
+
+    it('文内证据不足时明确展示上下文解释且不伪造页码', () => {
+        render(
+            <SelectionTranslationPopover
+                anchorRect={anchorRect}
+                value='异质性'
+                sourceText='heterogeneity'
+                aiState={{
+                    answer: '这里指同一系统内部不同单元在性质或行为上的差异。',
+                    citations: [],
+                    retrievalMode: 'contextual',
+                }}
+            />
+        );
+
+        expect(screen.getByText('AI 上下文解释')).not.toBeNull();
+        expect(screen.getByText('非作者明确定义')).not.toBeNull();
+        expect(screen.queryByRole('button', { name: /第 \d+ 页/u })).toBeNull();
+    });
+
+    it('文内证据解释保留可跳转的真实页码', () => {
+        const onJump = vi.fn();
+        render(
+            <SelectionTranslationPopover
+                anchorRect={anchorRect}
+                value='通量'
+                sourceText='flux'
+                aiState={{
+                    answer: '本文将 flux 用作反应通量。',
+                    citations: [{ pageNumber: 7, quote: 'reaction fluxes' }],
+                    retrievalMode: 'document',
+                }}
+                onJump={onJump}
+            />
+        );
+
+        expect(screen.getByText('文内证据解释')).not.toBeNull();
+        fireEvent.click(screen.getByRole('button', { name: '第 7 页' }));
+        expect(onJump).toHaveBeenCalledWith(7);
     });
 
     it('失败后可在原浮窗直接重试', () => {

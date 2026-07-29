@@ -291,7 +291,8 @@ export default function SelectionTranslationPopover({
     if (!open || !anchorRect) return null;
 
     const copyText = String(value || sourceText).trim();
-    const speechText = String(selectionKind === 'vocabulary' ? sourceText : copyText).trim();
+    // 论文阅读器的朗读始终服务于外文原文学习，不朗读中文译文。
+    const speechText = String(sourceText).trim();
     const handleCopy = async () => {
         if (!copyText) return;
         try {
@@ -405,14 +406,25 @@ export default function SelectionTranslationPopover({
                     <p className='selection-translation-popover__empty'>暂无译文。</p>
                 ) : null}
                 {aiState?.loading ? (
-                    <div className='selection-translation-popover__ai'>正在检索论文证据并解释…</div>
+                    <div className='selection-translation-popover__ai'>
+                        正在查找文内依据；不足时将结合选区上下文解释…
+                    </div>
                 ) : null}
                 {aiState?.error ? (
                     <div className='selection-translation-popover__ai is-error'>{aiState.error}</div>
                 ) : null}
                 {aiState?.answer ? (
                     <section className='selection-translation-popover__ai'>
-                        <strong>AI 解释</strong>
+                        <div className='selection-translation-popover__ai-heading'>
+                            <strong>
+                                {aiState.retrievalMode === 'contextual'
+                                    ? 'AI 上下文解释'
+                                    : aiState.retrievalMode === 'document'
+                                      ? '文内证据解释'
+                                      : 'AI 解释'}
+                            </strong>
+                            {aiState.retrievalMode === 'contextual' ? <span>非作者明确定义</span> : null}
+                        </div>
                         <FormattedTranslation
                             value={aiState.answer}
                             fontSize={13}
@@ -445,9 +457,7 @@ export default function SelectionTranslationPopover({
                     className='selection-translation-popover__action'
                     type='button'
                     disabled={!speechText || !onSpeak}
-                    onClick={() =>
-                        selectionKind === 'vocabulary' ? onSpeak?.(speechText, { source: true }) : onSpeak?.(speechText)
-                    }
+                    onClick={() => onSpeak?.(speechText, { source: true })}
                 >
                     <PiSpeakerHigh aria-hidden='true' />
                     <span>{selectionKind === 'vocabulary' ? '原词' : '朗读'}</span>

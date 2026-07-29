@@ -41,7 +41,10 @@ export const DEFAULT_SETTINGS_V2 = Object.freeze({
         inputTranslate: 'CommandOrControl+G',
     },
     speech: {
+        engine: 'system',
         voice: '',
+        chineseVoice: '',
+        englishVoice: '',
         rate: 1,
     },
     window: {
@@ -180,7 +183,14 @@ export function prepareSettingsForSave(value) {
             selectionTranslate: normalizeHotkey(settings.hotkeys.selectionTranslate),
             screenshotTranslate: normalizeHotkey(settings.hotkeys.screenshotTranslate),
         },
-        speech: { ...settings.speech, rate },
+        speech: {
+            ...settings.speech,
+            engine: 'system',
+            voice: String(settings.speech.voice ?? '').trim(),
+            chineseVoice: String(settings.speech.chineseVoice ?? '').trim(),
+            englishVoice: String(settings.speech.englishVoice ?? '').trim(),
+            rate,
+        },
         window: { ...settings.window, blurGuardMs },
         documents: { ...settings.documents, texCompiler },
         libraryPath: String(settings.libraryPath ?? '').trim() || null,

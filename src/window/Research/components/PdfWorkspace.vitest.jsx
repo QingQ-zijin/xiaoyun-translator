@@ -48,6 +48,38 @@ function setupNativeSelectionHarness(paperId) {
 }
 
 describe('PDF 文内笔记标记', () => {
+    it.each([
+        ['excerpt', '摘录'],
+        ['vocabulary', '摘词'],
+    ])('%s 只保留正文高亮，不渲染遮挡文字的书签按钮', (kind, tag) => {
+        const annotation = {
+            id: `${kind}-1`,
+            paperId: 'demo-memory',
+            pageNumber: 2,
+            kind,
+            color: kind === 'excerpt' ? 'amber' : 'blue',
+            quote: 'selected sentence',
+            tags: [tag],
+            rects: [{ x: 0.2, y: 0.3, width: 0.24, height: 0.03 }],
+        };
+        const { container } = render(
+            <PdfWorkspace
+                source=''
+                document={{ paper: { id: 'demo-memory' }, pageCount: 2 }}
+                currentPage={2}
+                scale={1.25}
+                annotations={[annotation]}
+            />
+        );
+
+        const mark = container.querySelector('.pdf-annotation-mark');
+        expect(mark).not.toBeNull();
+        expect(mark.classList.contains('has-tags')).toBe(false);
+        expect(mark.getAttribute('data-tag-count')).toBeNull();
+        expect(container.querySelector(`[data-annotation-id="${annotation.id}"]`)).toBeNull();
+        expect(screen.queryByRole('button', { name: /打开批注操作/u })).toBeNull();
+    });
+
     it('在首个批注矩形旁显示可点击的批注标签，并把删除操作收进标签菜单', () => {
         const annotation = {
             id: 'note-1',

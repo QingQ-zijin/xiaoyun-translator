@@ -13,6 +13,7 @@ import {
     normalizeSelectionRects,
     PDF_SELECTION_DEBOUNCE_MS,
     researchJobProgress,
+    RESEARCH_AI_INTENTS,
     sortPapers,
     shouldTranslateSelection,
     shouldConfirmEmbeddingInstall,
@@ -142,6 +143,7 @@ describe('论文阅读纯函数', () => {
                 pageText: ' context ',
             })
         ).toEqual({
+            intent: 'paper_qa',
             paperTitle: 'Paper',
             pageNumber: 3,
             quote: 'evidence',
@@ -156,12 +158,47 @@ describe('论文阅读纯函数', () => {
         });
         expect(buildAiEvidence({ pageText: 'x'.repeat(9_000) }).context).toHaveLength(8_000);
         expect(buildAiEvidence({})).toEqual({
+            intent: 'paper_qa',
             paperTitle: '',
             pageNumber: 1,
             quote: '',
             context: '',
             citationLabel: '第 1 页',
         });
+        expect(
+            buildAiEvidence({
+                intent: RESEARCH_AI_INTENTS.EXPLAIN_SELECTION,
+                selection: {
+                    pageNumber: 7,
+                    quote: 'heterogeneity',
+                    prefix: 'metabolic',
+                    suffix: 'among tissues',
+                },
+                pageText: `unrelated ${'x'.repeat(8_500)}`,
+            })
+        ).toMatchObject({
+            intent: 'explain_selection',
+            pageNumber: 7,
+            quote: 'heterogeneity',
+            context: 'metabolic heterogeneity among tissues',
+        });
+        const centeredEvidence = buildAiEvidence({
+            intent: 'explain_selection',
+            selection: { pageNumber: 9, quote: 'TARGET' },
+            pageText: `${'a'.repeat(7_000)} TARGET ${'b'.repeat(7_000)}`,
+        });
+        expect(centeredEvidence.context).toContain('TARGET');
+        expect(centeredEvidence.context).toHaveLength(8_000);
+        const anchoredLongEvidence = buildAiEvidence({
+            intent: 'explain_selection',
+            selection: {
+                quote: 'ANCHOR',
+                prefix: 'p'.repeat(9_000),
+                suffix: 's'.repeat(9_000),
+            },
+        });
+        expect(anchoredLongEvidence.context).toContain('ANCHOR');
+        expect(anchoredLongEvidence.context).toHaveLength(8_000);
         expect(normalizeSelectionRects(null, { left: 0, top: 0, width: 10, height: 10 })).toEqual([]);
     });
 

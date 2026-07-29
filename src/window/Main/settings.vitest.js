@@ -19,8 +19,14 @@ describe('SettingsV2 主窗口适配', () => {
         expect(settings.ollama.embedding.model).toBe('gemma4:e4b-it-qat');
         expect(settings.ollama.enabled).toBe(true);
         expect(settings.hotkeys.selectionTranslate).toBe('CommandOrControl+D');
-        expect(settings.version).toBe(5);
+        expect(settings.version).toBe(6);
         expect(settings.documents.texCompiler).toBe('auto');
+        expect(settings.speech).toMatchObject({
+            engine: 'system',
+            voice: '',
+            chineseVoice: '',
+            englishVoice: '',
+        });
     });
 
     it('保留用户关闭 Ollama 的选择，保存时不被默认值覆盖', () => {
@@ -67,12 +73,24 @@ describe('SettingsV2 主窗口适配', () => {
                     requestPath: 'http://localhost:11434/',
                 },
             },
-            speech: { voice: '', rate: 9 },
+            speech: {
+                engine: 'unfinished-neural-engine',
+                voice: '  fallback  ',
+                chineseVoice: '  zh-natural  ',
+                englishVoice: '  en-natural  ',
+                rate: 9,
+            },
             window: { ...DEFAULT_SETTINGS_V2.window, blurGuardMs: 9999 },
         });
         expect(settings.ollama.translation.requestPath).toBe('http://127.0.0.1:11434');
         expect(settings.ollama.vision.requestPath).toBe('http://127.0.0.1:11434');
         expect(settings.speech.rate).toBe(2);
+        expect(settings.speech).toMatchObject({
+            engine: 'system',
+            voice: 'fallback',
+            chineseVoice: 'zh-natural',
+            englishVoice: 'en-natural',
+        });
         expect(settings.window.blurGuardMs).toBe(2000);
     });
 
@@ -88,7 +106,7 @@ describe('SettingsV2 主窗口适配', () => {
                 },
             },
         });
-        expect(settings.version).toBe(5);
+        expect(settings.version).toBe(6);
         expect(settings.ollama.translation.requestPath).toBe('http://127.0.0.1:11434');
     });
 
@@ -139,5 +157,21 @@ describe('SettingsV2 主窗口适配', () => {
         expect(prepareSettingsForSave({ documents: { texCompiler: 'powershell.exe' } }).documents.texCompiler).toBe(
             'auto'
         );
+    });
+
+    it('平滑保留旧版单一朗读音色为其他语言回退', () => {
+        const settings = mergeSettingsV2({
+            version: 5,
+            speech: { voice: 'Legacy Voice', rate: 1.2 },
+        });
+
+        expect(settings.version).toBe(6);
+        expect(settings.speech).toEqual({
+            engine: 'system',
+            voice: 'Legacy Voice',
+            chineseVoice: '',
+            englishVoice: '',
+            rate: 1.2,
+        });
     });
 });

@@ -42,9 +42,11 @@ import {
     classifySelection,
     createSelectionAnchor,
     PDF_SELECTION_DEBOUNCE_MS,
+    RESEARCH_AI_INTENTS,
     shouldConfirmEmbeddingInstall,
 } from '../../domains/research/model';
 import { resolveAcademicTargetLanguage } from '../../domains/translation/language';
+import { cancelSpeechRequest, useSpeechRequest } from '../../hooks/useVoice';
 import { formatShortcutForPlatform, getPlatformPresentation } from '../../utils/platform';
 import {
     annotationUndoOperation,
@@ -128,6 +130,7 @@ function LibraryTopbar({ translationStatus }) {
 export default function Research({ onNavigate, embedded = false, startInLibrary = false }) {
     const library = useResearchLibrary();
     const sidebarResize = useResearchSidebarResize();
+    const runSpeechRequest = useSpeechRequest();
     const pdfRef = useRef(null);
     const aiAbortRef = useRef(null);
     const translationRequestRef = useRef({ id: 0, controller: null });
@@ -170,7 +173,14 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
     }));
     const [targetLanguage, setTargetLanguage] = useState('zh_cn');
     const [interactionMode, setInteractionMode] = useState('select');
-    const [aiState, setAiState] = useState({ loading: false, answer: '', citations: [], error: '' });
+    const [aiState, setAiState] = useState({
+        loading: false,
+        answer: '',
+        citations: [],
+        error: '',
+        refused: false,
+        retrievalMode: '',
+    });
     const [selectionOverlay, setSelectionOverlay] = useState(null);
     const [selectionMenu, setSelectionMenu] = useState(null);
     const [noteEditorOpen, setNoteEditorOpen] = useState(false);
@@ -522,6 +532,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
     useEffect(
         () => () => {
             aiAbortRef.current?.abort();
+            cancelSpeechRequest();
             chapterInsightRequestRef.current += 1;
             if (ocrProducerRef.current && !ocrProducerRef.current.cancelled) {
                 ocrProducerRef.current.cancelled = true;
@@ -534,6 +545,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
     const handleSelection = useCallback(
         (anchor, pageText, overlay) => {
             invalidateSelectionTranslation();
+            cancelSpeechRequest();
             setSelection(anchor);
             setSelectionPageText(pageText);
             setSelectionOverlay(overlay);
@@ -542,7 +554,14 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
             setTargetLanguage((current) => resolveAcademicTargetLanguage(anchor?.quote, current));
             setTranslation({ status: 'loading', loading: true, text: '', error: '' });
             setLexiconState({ loading: false, entry: null, error: '' });
-            setAiState({ loading: false, answer: '', citations: [], error: '' });
+            setAiState({
+                loading: false,
+                answer: '',
+                citations: [],
+                error: '',
+                refused: false,
+                retrievalMode: '',
+            });
         },
         [invalidateSelectionTranslation]
     );
@@ -569,6 +588,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
             if (!nextPaperId) return;
             pdfRef.current?.flushProgress?.();
             aiAbortRef.current?.abort();
+            cancelSpeechRequest();
             if (ocrProducerRef.current && !ocrProducerRef.current.cancelled) {
                 ocrProducerRef.current.cancelled = true;
                 void cancelResearchJob(ocrProducerRef.current.jobId).catch(() => undefined);
@@ -583,7 +603,14 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
             setNoteEditorOpen(false);
             setTranslation({ status: 'idle', loading: false, text: '', error: '' });
             setLexiconState({ loading: false, entry: null, error: '' });
-            setAiState({ loading: false, answer: '', citations: [], error: '' });
+            setAiState({
+                loading: false,
+                answer: '',
+                citations: [],
+                error: '',
+                refused: false,
+                retrievalMode: '',
+            });
             setDocument(null);
             library.markPaperOpened?.(nextPaperId);
             setPaperId(nextPaperId);
@@ -840,6 +867,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
 
     const closeSelection = useCallback(() => {
         aiAbortRef.current?.abort();
+        cancelSpeechRequest();
         invalidateSelectionTranslation();
         setSelection(null);
         setSelectionOverlay(null);
@@ -847,52 +875,97 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
         setNoteEditorOpen(false);
         setTranslation({ status: 'idle', loading: false, text: '', error: '' });
         setLexiconState({ loading: false, entry: null, error: '' });
-        setAiState({ loading: false, answer: '', citations: [], error: '' });
+        setAiState({
+            loading: false,
+            answer: '',
+            citations: [],
+            error: '',
+            refused: false,
+            retrievalMode: '',
+        });
         window.getSelection()?.removeAllRanges();
     }, [invalidateSelectionTranslation]);
 
     const handleAsk = useCallback(
-        async (question) => {
+        async (question, { intent = RESEARCH_AI_INTENTS.PAPER_QA } = {}) => {
             if (!document?.paper) return;
             aiAbortRef.current?.abort();
             const controller = new AbortController();
             aiAbortRef.current = controller;
-            setAiState({ loading: true, answer: '', citations: [], error: '' });
+            setAiState({
+                loading: true,
+                answer: '',
+                citations: [],
+                error: '',
+                refused: false,
+                retrievalMode: '',
+            });
             try {
-                const semanticStatus = await getSemanticStatus(document.paper.id);
-                if (shouldConfirmEmbeddingInstall(semanticStatus)) {
-                    const confirmed = window.confirm(
-                        `首次启用论文语义检索需要安装 ${semanticStatus.model}，预计占用约 ${semanticStatus.estimatedDownloadMb} MB。是否现在授权并开始下载？`
-                    );
-                    if (!confirmed) {
-                        setAiState({
-                            loading: false,
-                            answer: '',
-                            citations: [],
-                            error: '未安装嵌入模型；本次未下载任何模型。',
-                        });
-                        return;
+                if (intent !== RESEARCH_AI_INTENTS.EXPLAIN_SELECTION) {
+                    const semanticStatus = await getSemanticStatus(document.paper.id);
+                    if (shouldConfirmEmbeddingInstall(semanticStatus)) {
+                        const confirmed = window.confirm(
+                            `首次启用论文语义检索需要安装 ${semanticStatus.model}，预计占用约 ${semanticStatus.estimatedDownloadMb} MB。是否现在授权并开始下载？`
+                        );
+                        if (!confirmed) {
+                            setAiState({
+                                loading: false,
+                                answer: '',
+                                citations: [],
+                                error: '未安装嵌入模型；本次未下载任何模型。',
+                                refused: false,
+                                retrievalMode: '',
+                            });
+                            return;
+                        }
+                        await authorizeEmbeddingInstall();
                     }
-                    await authorizeEmbeddingInstall();
+                    const indexReceipt = await startEmbeddingIndex(document.paper.id);
+                    if (indexReceipt.jobId) setResearchJob(indexReceipt);
                 }
-                const indexReceipt = await startEmbeddingIndex(document.paper.id);
-                if (indexReceipt.jobId) setResearchJob(indexReceipt);
                 const result = await askPaper({
                     paperId: document.paper.id,
                     question,
+                    intent,
                     paperTitle: document.paper.title,
                     selection,
                     pageText: selectionPageText,
                     signal: controller.signal,
                 });
                 if (!controller.signal.aborted)
-                    setAiState({ loading: false, answer: result.answer, citations: result.citations ?? [], error: '' });
+                    setAiState({
+                        loading: false,
+                        answer: result.answer,
+                        citations: result.citations ?? [],
+                        error: '',
+                        refused: Boolean(result.refused),
+                        retrievalMode: result.retrievalMode ?? '',
+                    });
             } catch (reason) {
                 if (!controller.signal.aborted)
-                    setAiState({ loading: false, answer: '', citations: [], error: String(reason) });
+                    setAiState({
+                        loading: false,
+                        answer: '',
+                        citations: [],
+                        error: String(reason),
+                        refused: false,
+                        retrievalMode: '',
+                    });
             }
         },
         [document?.paper, selection, selectionPageText]
+    );
+
+    const handleSelectionSpeak = useCallback(
+        async (text, options) => {
+            if (!text) return;
+            try {
+                await runSpeechRequest(() => speakText(text, options?.source ? 'en' : targetLanguage));
+            } catch (reason) {
+                setOcrNotice(`朗读失败：${String(reason?.message ?? reason)}`);
+            }
+        },
+        [runSpeechRequest, targetLanguage]
     );
 
     const handleDrop = async (event) => {
@@ -1293,11 +1366,11 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                         lexiconState={lexiconState}
                         targetLanguage={targetLanguage}
                         onTargetLanguageChange={handleTargetLanguageChange}
-                        onSpeak={(text, options) => text && speakText(text, options?.source ? 'en' : targetLanguage)}
+                        onSpeak={handleSelectionSpeak}
                         onHighlight={highlightSelection}
                         onSaveExcerpt={excerptSelection}
                         onOpenNote={() => setNoteEditorOpen(true)}
-                        onExplain={() => handleAsk('解释所选内容')}
+                        onExplain={() => handleAsk('解释所选内容', { intent: RESEARCH_AI_INTENTS.EXPLAIN_SELECTION })}
                         onRetry={retrySelectionTranslation}
                         onClose={closeSelection}
                         aiState={aiState}
@@ -1339,7 +1412,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                                     boundaryRect: selectionMenu.boundaryRect,
                                 });
                             }
-                            void handleAsk('解释所选内容');
+                            void handleAsk('解释所选内容', { intent: RESEARCH_AI_INTENTS.EXPLAIN_SELECTION });
                         }}
                         onClose={() => setSelectionMenu(null)}
                     />

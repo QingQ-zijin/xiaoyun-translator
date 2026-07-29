@@ -11,6 +11,7 @@ import {
     PiKeyboard,
     PiMonitor,
     PiMoon,
+    PiPlay,
     PiSpeakerHigh,
     PiSpinnerGap,
     PiTranslate,
@@ -28,6 +29,8 @@ import OllamaOnboardingCard from './OllamaOnboardingCard';
 import OllamaModelSelect from './OllamaModelSelect';
 import { APP_UPDATE_PHASE } from './useAppUpdater';
 import { UNIFIED_OLLAMA_MODEL } from '../../domains/ollama/runtime';
+import { synthesizeSpeech } from '../../domains/translation';
+import { useSpeechRequest } from '../../hooks/useVoice';
 import { desktopPlatform, formatShortcutForPlatform, getPlatformPresentation } from '../../utils/platform';
 
 const LANGUAGE_OPTIONS = [
@@ -110,6 +113,84 @@ function SettingRow({ label, hint, children, align = 'center' }) {
                 {hint ? <span>{hint}</span> : null}
             </div>
             <div className='setting-row__control'>{children}</div>
+        </div>
+    );
+}
+
+function normalizeVoiceLanguage(language) {
+    return String(language ?? '')
+        .trim()
+        .replaceAll('_', '-')
+        .toLocaleLowerCase();
+}
+
+function voicesForLanguage(voices, language) {
+    const requested = normalizeVoiceLanguage(language);
+    const prefixes = requested === 'zh' ? ['zh', 'cmn', 'yue'] : [requested];
+    return voices.filter((voice) => {
+        const voiceLanguage = normalizeVoiceLanguage(voice.language);
+        return prefixes.some((prefix) => voiceLanguage === prefix || voiceLanguage.startsWith(`${prefix}-`));
+    });
+}
+
+function otherLanguageVoices(voices) {
+    const chinese = new Set(voicesForLanguage(voices, 'zh').map((voice) => voice.id));
+    const english = new Set(voicesForLanguage(voices, 'en').map((voice) => voice.id));
+    return voices.filter((voice) => !chinese.has(voice.id) && !english.has(voice.id));
+}
+
+function VoicePicker({ ariaLabel, value, voices, placeholder, onChange, onPreview, previewing, previewLabel }) {
+    const hasVoiceList = voices.length > 0;
+    return (
+        <div className='settings-voice-picker'>
+            {hasVoiceList ? (
+                <select
+                    aria-label={ariaLabel}
+                    value={value}
+                    onChange={(event) => onChange(event.target.value)}
+                >
+                    <option value=''>自动（优先自然语音）</option>
+                    {value && !voices.some((voice) => voice.id === value) ? (
+                        <option value={value}>当前音色（暂不可用）</option>
+                    ) : null}
+                    {voices.map((voice) => (
+                        <option
+                            key={voice.id}
+                            value={voice.id}
+                        >
+                            {voice.name} · {voice.language}
+                            {voice.quality === 'natural' ? ' · 自然语音' : ''}
+                        </option>
+                    ))}
+                </select>
+            ) : (
+                <input
+                    aria-label={ariaLabel}
+                    value={value}
+                    onChange={(event) => onChange(event.target.value)}
+                    placeholder={placeholder}
+                />
+            )}
+            {onPreview ? (
+                <button
+                    className='settings-voice-preview'
+                    type='button'
+                    aria-label={previewLabel}
+                    title={previewLabel}
+                    onClick={onPreview}
+                    disabled={previewing}
+                >
+                    {previewing ? (
+                        <PiSpinnerGap
+                            className='is-spinning'
+                            aria-hidden='true'
+                        />
+                    ) : (
+                        <PiPlay aria-hidden='true' />
+                    )}
+                    <span>试听</span>
+                </button>
+            ) : null}
         </div>
     );
 }
@@ -214,8 +295,10 @@ export default function SettingsPanel({ platform = desktopPlatform, updater = BR
     const [systemVoices, setSystemVoices] = useState([]);
     const [installedModels, setInstalledModels] = useState([]);
     const [modelListError, setModelListError] = useState('');
+    const [previewingVoice, setPreviewingVoice] = useState('');
     const [activeSection, setActiveSection] = useState(initialSettingsSection);
     const originalSettingsRef = useRef(mergeSettingsV2(DEFAULT_SETTINGS_V2));
+    const playSpeechRequest = useSpeechRequest();
 
     useLayoutEffect(() => {
         if (!String(globalThis.location?.hash ?? '').startsWith('#settings-')) return;
@@ -272,6 +355,29 @@ export default function SettingsPanel({ platform = desktopPlatform, updater = BR
     const setSpeech = useCallback((key, value) => {
         setSettings((current) => ({ ...current, speech: { ...current.speech, [key]: value } }));
     }, []);
+
+    const previewSpeech = useCallback(
+        async ({ key, text, language, voice }) => {
+            if (previewingVoice) return;
+            setPreviewingVoice(key);
+            try {
+                await playSpeechRequest(() =>
+                    synthesizeSpeech({
+                        text,
+                        language,
+                        // 空字符串是显式“自动选择”，不能回退到尚未保存的旧音色。
+                        voice,
+                        rate: settings.speech.rate,
+                    })
+                );
+            } catch (reason) {
+                setNotice({ type: 'error', text: `试听失败：${String(reason)}` });
+            } finally {
+                setPreviewingVoice('');
+            }
+        },
+        [playSpeechRequest, previewingVoice, settings.speech.rate]
+    );
 
     const setWindowSetting = useCallback((key, value) => {
         setSettings((current) => ({ ...current, window: { ...current.window, [key]: value } }));
@@ -383,6 +489,9 @@ export default function SettingsPanel({ platform = desktopPlatform, updater = BR
     }
 
     const ollamaHost = settings.ollama.translation.requestPath;
+    const chineseVoices = voicesForLanguage(systemVoices, 'zh');
+    const englishVoices = voicesForLanguage(systemVoices, 'en');
+    const fallbackVoices = otherLanguageVoices(systemVoices);
     const selectionShortcut = formatShortcutForPlatform(settings.hotkeys.selectionTranslate, platform);
     const updateStatus = updaterStatusCopy(updater);
     const UpdateStatusIcon = updater.error
@@ -621,36 +730,72 @@ export default function SettingsPanel({ platform = desktopPlatform, updater = BR
                         active={activeSection === 'speech'}
                     >
                         <SettingRow
-                            label='声音'
-                            hint='留空时按语言自动匹配系统声音'
+                            label='朗读引擎'
+                            hint='不下载语音模型，也不占用 GPU 显存'
                         >
-                            {systemVoices.length > 0 ? (
-                                <select
-                                    value={settings.speech.voice}
-                                    onChange={(event) => setSpeech('voice', event.target.value)}
-                                >
-                                    <option value=''>按语言自动选择</option>
-                                    {settings.speech.voice &&
-                                    !systemVoices.some((voice) => voice.id === settings.speech.voice) ? (
-                                        <option value={settings.speech.voice}>当前声音（暂不可用）</option>
-                                    ) : null}
-                                    {systemVoices.map((voice) => (
-                                        <option
-                                            key={voice.id}
-                                            value={voice.id}
-                                        >
-                                            {voice.name} · {voice.language}
-                                        </option>
-                                    ))}
-                                </select>
-                            ) : (
-                                <input
-                                    value={settings.speech.voice}
-                                    onChange={(event) => setSpeech('voice', event.target.value)}
-                                    placeholder={platformPresentation.speechVoicePlaceholder}
-                                />
-                            )}
+                            <span className='settings-speech-engine'>
+                                <PiCheckCircle aria-hidden='true' />
+                                系统本地语音 · 零下载 · 零显存
+                            </span>
                         </SettingRow>
+                        <SettingRow
+                            label='中文朗读模型 / 音色'
+                            hint='自动模式优先匹配已安装的自然语音'
+                        >
+                            <VoicePicker
+                                ariaLabel='中文朗读音色'
+                                value={settings.speech.chineseVoice}
+                                voices={chineseVoices}
+                                placeholder={platformPresentation.speechChineseVoicePlaceholder}
+                                onChange={(value) => setSpeech('chineseVoice', value)}
+                                onPreview={() =>
+                                    previewSpeech({
+                                        key: 'zh',
+                                        text: '小允翻译，让论文阅读更自然。',
+                                        language: 'zh_cn',
+                                        voice: settings.speech.chineseVoice,
+                                    })
+                                }
+                                previewing={previewingVoice === 'zh'}
+                                previewLabel='试听中文音色'
+                            />
+                        </SettingRow>
+                        <SettingRow
+                            label='英文朗读模型 / 音色'
+                            hint='划取英文单词或句子时使用'
+                        >
+                            <VoicePicker
+                                ariaLabel='英文朗读音色'
+                                value={settings.speech.englishVoice}
+                                voices={englishVoices}
+                                placeholder={platformPresentation.speechEnglishVoicePlaceholder}
+                                onChange={(value) => setSpeech('englishVoice', value)}
+                                onPreview={() =>
+                                    previewSpeech({
+                                        key: 'en',
+                                        text: 'Academic reading should sound natural and clear.',
+                                        language: 'en',
+                                        voice: settings.speech.englishVoice,
+                                    })
+                                }
+                                previewing={previewingVoice === 'en'}
+                                previewLabel='试听英文音色'
+                            />
+                        </SettingRow>
+                        {settings.speech.voice || fallbackVoices.length > 0 ? (
+                            <SettingRow
+                                label='其他语言音色'
+                                hint='兼容升级前的单一音色设置'
+                            >
+                                <VoicePicker
+                                    ariaLabel='其他语言朗读音色'
+                                    value={settings.speech.voice}
+                                    voices={fallbackVoices}
+                                    placeholder={platformPresentation.speechVoicePlaceholder}
+                                    onChange={(value) => setSpeech('voice', value)}
+                                />
+                            </SettingRow>
+                        ) : null}
                         <SettingRow
                             label='语速'
                             hint={`${Number(settings.speech.rate).toFixed(1)}×`}
@@ -665,6 +810,9 @@ export default function SettingsPanel({ platform = desktopPlatform, updater = BR
                                 onChange={(event) => setSpeech('rate', Number(event.target.value))}
                             />
                         </SettingRow>
+                        <p className='settings-speech-note'>
+                            专用神经朗读模型需要额外下载和运行内存；完整接入前不会显示不可用的选项。
+                        </p>
                     </SettingSection>
 
                     <SettingSection

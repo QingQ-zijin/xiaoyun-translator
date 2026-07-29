@@ -1,7 +1,7 @@
 /** 当前桌面版的单一多模态模型策略。 */
 export const UNIFIED_OLLAMA_MODEL = 'gemma4:e4b-it-qat';
 export const UNIFIED_OLLAMA_CONTEXT_TOKENS = 8192;
-export const SETTINGS_VERSION = 5;
+export const SETTINGS_VERSION = 6;
 
 /**
  * 把旧的四模型配置收敛为一个端点。Gemma 4 不支持 embeddings，embedding 字段只为

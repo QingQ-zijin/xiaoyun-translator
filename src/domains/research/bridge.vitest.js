@@ -25,6 +25,7 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({ open: mocks.openDialog }));
 vi.mock('../translation', () => ({ synthesizeSpeech: mocks.synthesizeSpeech }));
 
 import {
+    askPaper,
     archivePapers,
     cancelPaperInsights,
     choosePdfPaths,
@@ -208,6 +209,66 @@ describe('论文阅读器划词翻译 bridge', () => {
             'research_translate_selection',
             expect.objectContaining({ targetLanguage: 'en' })
         );
+    });
+});
+
+describe('论文阅读器选区解释 bridge', () => {
+    it('显式传递 explain_selection 意图并优先发送选区邻近上下文', async () => {
+        mocks.invoke.mockResolvedValue({
+            answer: '异质性指研究对象在性质或功能上的差异。',
+            citations: [],
+            refused: false,
+            retrievalMode: 'contextual',
+        });
+
+        await expect(
+            askPaper({
+                paperId: 'paper-1',
+                question: '解释所选内容',
+                paperTitle: 'Metabolic heterogeneity',
+                selection: {
+                    pageNumber: 8,
+                    quote: 'heterogeneity',
+                    prefix: 'intra-tissue metabolic',
+                    suffix: 'across cooperative mechanisms',
+                },
+                pageText: `irrelevant ${'x'.repeat(9_000)}`,
+                intent: 'explain_selection',
+            })
+        ).resolves.toMatchObject({
+            answer: '异质性指研究对象在性质或功能上的差异。',
+            citations: [],
+            retrievalMode: 'contextual',
+        });
+
+        expect(mocks.invoke).toHaveBeenCalledWith('research_ai_query', {
+            paperId: 'paper-1',
+            question: '解释所选内容',
+            evidence: {
+                intent: 'explain_selection',
+                paperTitle: 'Metabolic heterogeneity',
+                pageNumber: 8,
+                quote: 'heterogeneity',
+                context: 'intra-tissue metabolic heterogeneity across cooperative mechanisms',
+                citationLabel: '第 8 页',
+            },
+        });
+    });
+
+    it('请求已取消时不会进入后端', async () => {
+        const controller = new AbortController();
+        controller.abort();
+
+        await expect(
+            askPaper({
+                paperId: 'paper-1',
+                question: '解释所选内容',
+                selection,
+                intent: 'explain_selection',
+                signal: controller.signal,
+            })
+        ).rejects.toMatchObject({ name: 'AbortError' });
+        expect(mocks.invoke).not.toHaveBeenCalled();
     });
 });
 

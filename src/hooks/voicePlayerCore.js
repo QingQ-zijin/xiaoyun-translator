@@ -30,6 +30,16 @@ export function createVoicePlayer(createAudioContext) {
     let source = null;
     let decoding = false;
     let generation = 0;
+    let preparation = null;
+
+    const prepare = () => {
+        audioContext ??= createAudioContext();
+        if (audioContext.state !== 'suspended') return null;
+        preparation ??= Promise.resolve(audioContext.resume()).finally(() => {
+            preparation = null;
+        });
+        return preparation;
+    };
 
     const stopCurrent = () => {
         if (!source) return;
@@ -47,7 +57,7 @@ export function createVoicePlayer(createAudioContext) {
         }
     };
 
-    return async function playOrStop(data) {
+    const playOrStop = async function playOrStop(data) {
         const requestGeneration = ++generation;
         if (source || decoding) {
             decoding = false;
@@ -57,8 +67,8 @@ export function createVoicePlayer(createAudioContext) {
 
         decoding = true;
         try {
-            audioContext ??= createAudioContext();
-            if (audioContext.state === 'suspended') await audioContext.resume();
+            const playbackReady = prepare();
+            if (playbackReady) await playbackReady;
             const buffer = await decodeAudio(audioContext, copyAudioBytes(data));
 
             if (!decoding || generation !== requestGeneration) return false;
@@ -84,6 +94,19 @@ export function createVoicePlayer(createAudioContext) {
             throw error;
         }
     };
+
+    playOrStop.stop = () => {
+        const wasActive = Boolean(source || decoding);
+        generation++;
+        decoding = false;
+        stopCurrent();
+        return wasActive;
+    };
+    // 必须在点击处理器的同步阶段调用 resume；等 TTS 异步合成结束后再创建
+    // AudioContext 会失去 WebView2 的用户手势授权，表现为有音频数据但无声。
+    playOrStop.prepare = prepare;
+
+    return playOrStop;
 }
 
 export function createSpeechRequestGate(playAudio) {
@@ -92,9 +115,20 @@ export function createSpeechRequestGate(playAudio) {
     return {
         async run(loadAudio) {
             const requestGeneration = ++generation;
+            playAudio.stop?.();
+            let playbackReady;
+            try {
+                playbackReady = Promise.resolve(playAudio.prepare?.());
+                // 音频合成可能较慢，先处理潜在拒绝以免产生未处理 Promise。
+                playbackReady.catch(() => {});
+            } catch (error) {
+                playbackReady = Promise.reject(error);
+                playbackReady.catch(() => {});
+            }
             let audio;
             try {
                 audio = await loadAudio();
+                await playbackReady;
             } catch (error) {
                 if (generation !== requestGeneration) return false;
                 throw error;
@@ -109,6 +143,7 @@ export function createSpeechRequestGate(playAudio) {
         },
         cancel() {
             generation++;
+            playAudio.stop?.();
         },
     };
 }

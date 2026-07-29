@@ -539,6 +539,24 @@
     margin-bottom: 7px;
     color: var(--research-accent);
 }
+.selection-translation-popover__ai-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 7px;
+}
+.selection-translation-popover__ai-heading > strong {
+    color: var(--research-accent);
+}
+.selection-translation-popover__ai-heading > span {
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: #eee9ff;
+    color: #7664d7;
+    font-size: 10px;
+    font-weight: 650;
+}
 .selection-translation-popover__ai.is-error {
     color: #b1444d;
 }

@@ -77,6 +77,24 @@ test('播放中再次点击会停止当前音频，之后仍可重新播放', as
     assert.equal(context.sources[1].started, true);
 });
 
+test('显式停止会取消解码或播放，且不会把停止动作误当成下一次播放', async () => {
+    const context = createAudioContext();
+    const player = createVoicePlayer(() => context);
+
+    const pending = player([1, 2, 3]);
+    assert.equal(player.stop(), true);
+    context.decodes[0].resolve({ decoded: true });
+    assert.equal(await pending, false);
+    assert.equal(context.sources.length, 0);
+
+    const playing = player([4, 5, 6]);
+    context.decodes[1].resolve({ decoded: true });
+    assert.equal(await playing, true);
+    assert.equal(player.stop(), true);
+    assert.equal(context.sources[0].stopped, true);
+    assert.equal(player.stop(), false);
+});
+
 test('A 请求慢、B 请求快时，只允许较新的 B 响应进入播放器', async () => {
     const played = [];
     const gate = createSpeechRequestGate((audio) => played.push(audio));
@@ -91,6 +109,49 @@ test('A 请求慢、B 请求快时，只允许较新的 B 响应进入播放器'
     assert.equal(await requestA, false);
 
     assert.deepEqual(played, ['B']);
+});
+
+test('新朗读请求与取消都会立即停止正在播放的旧音频', async () => {
+    const stopped = [];
+    const played = [];
+    const playAudio = (audio) => played.push(audio);
+    playAudio.stop = () => stopped.push('stop');
+    const gate = createSpeechRequestGate(playAudio);
+
+    await gate.run(async () => 'first');
+    await gate.run(async () => 'second');
+    gate.cancel();
+
+    assert.deepEqual(played, ['first', 'second']);
+    assert.deepEqual(stopped, ['stop', 'stop', 'stop']);
+});
+
+test('异步合成开始前即在用户手势阶段恢复音频上下文', async () => {
+    const context = createAudioContext();
+    const resume = deferred();
+    let resumeCalls = 0;
+    context.state = 'suspended';
+    context.resume = () => {
+        resumeCalls++;
+        return resume.promise.then(() => {
+            context.state = 'running';
+        });
+    };
+    const player = createVoicePlayer(() => context);
+    const gate = createSpeechRequestGate(player);
+    const audio = deferred();
+
+    const request = gate.run(() => {
+        assert.equal(resumeCalls, 1);
+        return audio.promise;
+    });
+    audio.resolve([1, 2, 3]);
+    resume.resolve();
+    await new Promise((resolve) => setImmediate(resolve));
+    context.decodes[0].resolve({ decoded: true });
+
+    assert.equal(await request, true);
+    assert.equal(context.sources[0].started, true);
 });
 
 test('已经过期的朗读请求即使稍后失败，也不再弹出错误', async () => {

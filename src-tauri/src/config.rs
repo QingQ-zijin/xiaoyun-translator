@@ -15,7 +15,7 @@ use tauri_plugin_store::{Store, StoreBuilder};
 
 pub struct StoreWrapper(pub Arc<Store<Wry>>);
 
-pub const SETTINGS_VERSION: u8 = 5;
+pub const SETTINGS_VERSION: u8 = 6;
 
 /// 4.3 起所有生成任务共用一个本地多模态模型，避免 8GB 显存中同时驻留多个 runner。
 pub const UNIFIED_OLLAMA_MODEL: &str = "gemma4:e4b-it-qat";
@@ -101,14 +101,22 @@ impl Default for HotkeySettings {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SpeechSettings {
+    /// 当前仅使用操作系统本地语音；该引擎零下载、零显存占用。
+    pub engine: String,
+    /// 旧版单一音色保留为其他语言的兼容回退，不静默猜测它属于中文还是英文。
     pub voice: String,
+    pub chinese_voice: String,
+    pub english_voice: String,
     pub rate: f32,
 }
 
 impl Default for SpeechSettings {
     fn default() -> Self {
         Self {
+            engine: "system".to_string(),
             voice: String::new(),
+            chinese_voice: String::new(),
+            english_voice: String::new(),
             rate: 1.0,
         }
     }
@@ -279,6 +287,12 @@ fn normalize_settings(mut settings: SettingsV2) -> SettingsV2 {
     settings.ollama.embedding.stream = false;
     settings.ollama.embedding_install_confirmed = false;
     settings.ollama.semantic_embeddings_enabled = false;
+    // 暂不暴露尚未完整集成的神经 TTS；旧配置中的未知引擎安全迁回系统语音。
+    settings.speech.engine = "system".to_string();
+    settings.speech.voice = settings.speech.voice.trim().to_string();
+    settings.speech.chinese_voice = settings.speech.chinese_voice.trim().to_string();
+    settings.speech.english_voice = settings.speech.english_voice.trim().to_string();
+    settings.speech.rate = settings.speech.rate.clamp(0.5, 2.0);
     settings.documents.tex_compiler = settings.documents.tex_compiler.trim().to_ascii_lowercase();
     if !TEX_COMPILERS.contains(&settings.documents.tex_compiler.as_str()) {
         settings.documents.tex_compiler = DocumentSettings::default().tex_compiler;
@@ -392,7 +406,7 @@ mod tests {
     #[test]
     fn defaults_are_ollama_only() {
         let settings = SettingsV2::default();
-        assert_eq!(settings.version, 5);
+        assert_eq!(settings.version, 6);
         for endpoint in [
             &settings.ollama.translation,
             &settings.ollama.research,
@@ -405,6 +419,9 @@ mod tests {
         assert!(!settings.ollama.embedding_install_confirmed);
         assert!(!settings.ollama.semantic_embeddings_enabled);
         assert_eq!(settings.documents.tex_compiler, "auto");
+        assert_eq!(settings.speech.engine, "system");
+        assert!(settings.speech.chinese_voice.is_empty());
+        assert!(settings.speech.english_voice.is_empty());
     }
 
     #[test]
@@ -494,5 +511,42 @@ mod tests {
         let mut invalid = SettingsV2::default();
         invalid.documents.tex_compiler = "shell-script".to_string();
         assert_eq!(normalize_settings(invalid).documents.tex_compiler, "auto");
+    }
+
+    #[test]
+    fn legacy_single_voice_is_kept_as_other_language_fallback() {
+        let settings: SettingsV2 = serde_json::from_value(json!({
+            "version": 5,
+            "speech": {
+                "voice": "Legacy Voice",
+                "rate": 1.25
+            }
+        }))
+        .unwrap();
+        let normalized = normalize_settings(settings);
+
+        assert_eq!(normalized.version, SETTINGS_VERSION);
+        assert_eq!(normalized.speech.engine, "system");
+        assert_eq!(normalized.speech.voice, "Legacy Voice");
+        assert!(normalized.speech.chinese_voice.is_empty());
+        assert!(normalized.speech.english_voice.is_empty());
+        assert_eq!(normalized.speech.rate, 1.25);
+    }
+
+    #[test]
+    fn speech_settings_reject_unknown_engines_and_normalize_values() {
+        let mut settings = SettingsV2::default();
+        settings.speech.engine = "unfinished-neural-engine".to_string();
+        settings.speech.voice = "  fallback  ".to_string();
+        settings.speech.chinese_voice = "  zh-natural  ".to_string();
+        settings.speech.english_voice = "  en-natural  ".to_string();
+        settings.speech.rate = 9.0;
+
+        let normalized = normalize_settings(settings);
+        assert_eq!(normalized.speech.engine, "system");
+        assert_eq!(normalized.speech.voice, "fallback");
+        assert_eq!(normalized.speech.chinese_voice, "zh-natural");
+        assert_eq!(normalized.speech.english_voice, "en-natural");
+        assert_eq!(normalized.speech.rate, 2.0);
     }
 }

@@ -152,6 +152,7 @@ test('阅读进度被约束到合法范围，AI 证据携带可跳转页码', ()
             pageText: 'evidence',
         }),
         {
+            intent: 'paper_qa',
             paperTitle: 'Memory',
             pageNumber: 2,
             quote: 'hippocampus',

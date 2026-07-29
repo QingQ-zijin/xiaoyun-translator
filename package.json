@@ -1,7 +1,7 @@
 {
     "name": "xiaoyun-translate",
     "private": true,
-    "version": "4.5.4",
+    "version": "4.5.5",
     "description": "本地优先的 AI 学术翻译与论文、书籍阅读器",
     "license": "GPL-3.0-only",
     "repository": {

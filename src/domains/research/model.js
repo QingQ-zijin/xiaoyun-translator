@@ -5,6 +5,10 @@ export const PDF_SELECTION_DEBOUNCE_MS = 40;
 export const PDF_PAGE_OVERSCAN = 1;
 export const UNCLASSIFIED_PROJECT_ID = '__unclassified__';
 export const DEFAULT_PAPER_SORT = 'lastOpenedDesc';
+export const RESEARCH_AI_INTENTS = Object.freeze({
+    PAPER_QA: 'paper_qa',
+    EXPLAIN_SELECTION: 'explain_selection',
+});
 export const PAPER_SORT_OPTIONS = Object.freeze([
     { value: 'lastOpenedDesc', label: '最近打开' },
     { value: 'lastOpenedAsc', label: '最久未打开' },
@@ -256,14 +260,58 @@ export function clampReadingProgress({ pageNumber, pageCount, scale = 1.25, scro
     };
 }
 
-export function buildAiEvidence({ paperTitle = '', selection, pageText = '' }) {
+function buildSelectionContext(selection, pageText, limit = 8_000) {
+    const quote = String(selection?.quote ?? '')
+        .replace(MULTI_SPACE_RE, ' ')
+        .trim();
+    const prefix = String(selection?.prefix ?? '')
+        .replace(MULTI_SPACE_RE, ' ')
+        .trim();
+    const suffix = String(selection?.suffix ?? '')
+        .replace(MULTI_SPACE_RE, ' ')
+        .trim();
+
+    // PDF.js 已在创建选区锚点时提取了紧邻选区的前后文；它比整页开头更能
+    // 消除术语和代词歧义，也避免长页面把真正相关的句子截掉。
+    if (prefix || suffix) {
+        if (quote.length >= limit) return quote.slice(0, limit);
+        const separatorCount = Number(Boolean(prefix && quote)) + Number(Boolean(suffix && (prefix || quote)));
+        const remaining = Math.max(0, limit - quote.length - separatorCount);
+        let prefixBudget = Math.floor(remaining / 2);
+        let suffixBudget = remaining - prefixBudget;
+        if (prefix.length < prefixBudget) suffixBudget += prefixBudget - prefix.length;
+        if (suffix.length < suffixBudget) prefixBudget += suffixBudget - suffix.length;
+        const selectedPrefix = prefixBudget > 0 ? prefix.slice(-prefixBudget) : '';
+        const selectedSuffix = suffixBudget > 0 ? suffix.slice(0, suffixBudget) : '';
+        return [selectedPrefix, quote, selectedSuffix].filter(Boolean).join(' ');
+    }
+
+    const normalizedPageText = String(pageText ?? '')
+        .replace(MULTI_SPACE_RE, ' ')
+        .trim();
+    if (!normalizedPageText) return quote.slice(0, limit);
+    if (!quote) return normalizedPageText.slice(0, limit);
+
+    // 兼容旧锚点或外部调用：没有 prefix/suffix 时，在整页中定位选区并截取
+    // 一个以选区为中心的窗口，而不是固定取页面前 8,000 字符。
+    const quoteOffset = normalizedPageText.indexOf(quote);
+    if (quoteOffset < 0) return normalizedPageText.slice(0, limit);
+    const contextRadius = Math.max(0, Math.floor((limit - quote.length) / 2));
+    const start = Math.max(0, quoteOffset - contextRadius);
+    const end = Math.min(normalizedPageText.length, quoteOffset + quote.length + contextRadius);
+    return normalizedPageText.slice(start, end);
+}
+
+export function buildAiEvidence({ paperTitle = '', selection, pageText = '', intent = RESEARCH_AI_INTENTS.PAPER_QA }) {
     const pageNumber = selection?.pageNumber ?? 1;
     const quote = String(selection?.quote ?? '').trim();
-    const context = String(pageText ?? '')
-        .replace(MULTI_SPACE_RE, ' ')
-        .trim()
-        .slice(0, 8_000);
+    const context = buildSelectionContext(selection, pageText);
+    const normalizedIntent =
+        intent === RESEARCH_AI_INTENTS.EXPLAIN_SELECTION
+            ? RESEARCH_AI_INTENTS.EXPLAIN_SELECTION
+            : RESEARCH_AI_INTENTS.PAPER_QA;
     return {
+        intent: normalizedIntent,
         paperTitle: String(paperTitle ?? '').trim(),
         pageNumber,
         quote,

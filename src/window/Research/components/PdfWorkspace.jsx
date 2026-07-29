@@ -94,20 +94,27 @@ function AnnotationMarks({ annotations, onActivate, onDelete }) {
         const tags = Array.isArray(annotation.tags) ? annotation.tags.filter(Boolean) : [];
         const description = [tags.map((tag) => `#${tag}`).join(' '), annotation.note].filter(Boolean).join(' · ');
         const rects = annotation.rects ?? [];
-        const marks = rects.map((rect, index) => (
-            <span
-                className={`pdf-annotation-mark pdf-annotation-mark--${annotation.color ?? 'violet'} ${index === 0 && tags.length ? 'has-tags' : ''}`}
-                data-tag-count={index === 0 && tags.length ? `#${tags.length}` : undefined}
-                key={`${annotation.id}-${index}`}
-                title={description || annotation.quote || '论文高亮'}
-                style={{
-                    left: `${rect.x * 100}%`,
-                    top: `${rect.y * 100}%`,
-                    width: `${rect.width * 100}%`,
-                    height: `${rect.height * 100}%`,
-                }}
-            />
-        ));
+        const hidesInlineControls = annotation.kind === 'excerpt' || annotation.kind === 'vocabulary';
+        const marks = rects.map((rect, index) => {
+            const showsTagCount = !hidesInlineControls && index === 0 && tags.length;
+            return (
+                <span
+                    className={`pdf-annotation-mark pdf-annotation-mark--${annotation.color ?? 'violet'} ${showsTagCount ? 'has-tags' : ''}`}
+                    data-tag-count={showsTagCount ? `#${tags.length}` : undefined}
+                    key={`${annotation.id}-${index}`}
+                    title={description || annotation.quote || '论文高亮'}
+                    style={{
+                        left: `${rect.x * 100}%`,
+                        top: `${rect.y * 100}%`,
+                        width: `${rect.width * 100}%`,
+                        height: `${rect.height * 100}%`,
+                    }}
+                />
+            );
+        });
+        // 摘录与摘词已经可在侧栏集中管理；不要再把书签按钮压在正文上。
+        // 笔记与高亮仍保留文内操作入口，便于就地查看、取消或删除。
+        if (hidesInlineControls) return marks;
         const firstRect = rects[0];
         if (!firstRect) return marks;
         const markerLeft = Math.min(0.965, Math.max(0.02, firstRect.x + firstRect.width));

@@ -8,7 +8,7 @@ import { UNIFIED_OLLAMA_MODEL } from '../ollama/runtime';
 import { isTauriRuntime as isDesktopTauriRuntime, translateWithDesktopBackend } from '../translation/desktopTransport';
 import { resolveAcademicTargetLanguage } from '../translation/language';
 import { DEMO_ANNOTATIONS, DEMO_DOCUMENT, DEMO_PAPERS, DEMO_TAGS, DEMO_TRANSLATION } from './demoData';
-import { buildAiEvidence } from './model';
+import { buildAiEvidence, RESEARCH_AI_INTENTS } from './model';
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const now = () => new Date().toISOString();
@@ -785,17 +785,33 @@ export async function translateSelection({
     });
 }
 
-export async function askPaper({ paperId, question, paperTitle, selection, pageText, signal }) {
-    const evidence = buildAiEvidence({ paperTitle, selection, pageText });
+export async function askPaper({
+    paperId,
+    question,
+    paperTitle,
+    selection,
+    pageText,
+    intent = RESEARCH_AI_INTENTS.PAPER_QA,
+    signal,
+}) {
+    const evidence = buildAiEvidence({ paperTitle, selection, pageText, intent });
+    if (signal?.aborted) throw new DOMException('论文问答已取消', 'AbortError');
     if (!isTauriRuntime()) {
+        const explainsSelection = evidence.intent === RESEARCH_AI_INTENTS.EXPLAIN_SELECTION;
         return {
-            answer: `当前证据表明，所选段落强调海马体各亚区在记忆形成与提取中的分工。齿状回主要关联模式分离，CA3 关联模式补全，CA1 则负责整合和向皮层传递信息。`,
-            citations: [{ pageNumber: evidence.pageNumber, quote: evidence.quote }],
+            answer: explainsSelection
+                ? '结合选区上下文，这一术语描述的是不同对象或组成部分在性质、结构或功能上的差异。具体含义应以它在当前学科语境中的修饰对象为准。'
+                : '当前证据表明，所选段落强调海马体各亚区在记忆形成与提取中的分工。齿状回主要关联模式分离，CA3 关联模式补全，CA1 则负责整合和向皮层传递信息。',
+            citations: explainsSelection ? [] : [{ pageNumber: evidence.pageNumber, quote: evidence.quote }],
+            refused: false,
+            retrievalMode: explainsSelection ? 'contextual' : 'selection',
         };
     }
 
     try {
-        return await invokeResearch('research_ai_query', { paperId, question, evidence });
+        const result = await invokeResearch('research_ai_query', { paperId, question, evidence });
+        if (signal?.aborted) throw new DOMException('论文问答已取消', 'AbortError');
+        return result;
     } catch (error) {
         if (!isUnknownCommandError(error)) throw error;
         throw new Error('当前程序后端不支持论文问答，请安装最新版本后重试。');

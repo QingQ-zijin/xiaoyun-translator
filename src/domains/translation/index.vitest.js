@@ -13,7 +13,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 }));
 vi.mock('../../services/translate/ollama', () => ({ translate: mocks.translateWithOllama }));
 
-import { loadOllamaTranslationConfig, translateAcademic } from './index';
+import { loadOllamaTranslationConfig, resolveSpeechVoice, synthesizeSpeech, translateAcademic } from './index';
 
 const TAURI_MARKERS = ['__TAURI__', '__TAURI_METADATA__', '__TAURI_INTERNALS__'];
 
@@ -126,5 +126,59 @@ describe('学术翻译桌面路由', () => {
                 targetLanguage: 'en',
             })
         );
+    });
+});
+
+describe('本地朗读按语言选择音色', () => {
+    it('中英文使用独立音色，旧 voice 只为其他语言回退', () => {
+        const speech = {
+            voice: 'legacy-other',
+            chineseVoice: 'zh-natural',
+            englishVoice: 'en-natural',
+        };
+
+        expect(resolveSpeechVoice(speech, 'zh_cn')).toBe('zh-natural');
+        expect(resolveSpeechVoice(speech, 'zh-TW')).toBe('zh-natural');
+        expect(resolveSpeechVoice(speech, 'en-US')).toBe('en-natural');
+        expect(resolveSpeechVoice(speech, 'ja')).toBe('legacy-other');
+        expect(resolveSpeechVoice(speech, 'zh')).toBe('zh-natural');
+        expect(resolveSpeechVoice(speech, 'en')).toBe('en-natural');
+    });
+
+    it('调用系统朗读时使用设置中的语言音色', async () => {
+        mocks.invoke
+            .mockResolvedValueOnce({
+                speech: {
+                    voice: 'legacy-other',
+                    chineseVoice: 'zh-natural',
+                    englishVoice: 'en-natural',
+                    rate: 1.3,
+                },
+            })
+            .mockResolvedValueOnce([82, 73, 70, 70]);
+
+        await synthesizeSpeech({ text: 'flux', language: 'en' });
+
+        expect(mocks.invoke).toHaveBeenNthCalledWith(1, 'get_settings_v2');
+        expect(mocks.invoke).toHaveBeenNthCalledWith(2, 'system_tts', {
+            text: 'flux',
+            lang: 'en',
+            voice: 'en-natural',
+            rate: 1.3,
+        });
+    });
+
+    it('显式试听音色优先于已保存设置', async () => {
+        mocks.invoke.mockResolvedValueOnce({ speech: { englishVoice: 'saved-voice', rate: 1 } });
+        mocks.invoke.mockResolvedValueOnce([82, 73, 70, 70]);
+
+        await synthesizeSpeech({ text: 'preview', language: 'en', voice: 'preview-voice', rate: 0.9 });
+
+        expect(mocks.invoke).toHaveBeenLastCalledWith('system_tts', {
+            text: 'preview',
+            lang: 'en',
+            voice: 'preview-voice',
+            rate: 0.9,
+        });
     });
 });

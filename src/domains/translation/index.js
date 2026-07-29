@@ -119,6 +119,17 @@ export async function translateAcademic({
     }
 }
 
+export function resolveSpeechVoice(speech = {}, language = '') {
+    const normalizedLanguage = String(language ?? '')
+        .trim()
+        .replaceAll('_', '-')
+        .toLocaleLowerCase();
+    if (/^zh(?:-|$)/u.test(normalizedLanguage)) return speech.chineseVoice || null;
+    if (/^en(?:-|$)/u.test(normalizedLanguage)) return speech.englishVoice || null;
+    // 旧版设置中的单一 voice 只作为其他语言回退，避免把中文音色误用于英语，反之亦然。
+    return speech.voice || null;
+}
+
 export async function synthesizeSpeech({ text, language = 'zh_cn', voice, rate } = {}) {
     const normalizedLanguage = language === 'zh_cn' ? 'zh' : language === 'zh_tw' ? 'zh-TW' : language;
     const settingsV2 = await invoke('get_settings_v2').catch(() => ({}));
@@ -126,7 +137,7 @@ export async function synthesizeSpeech({ text, language = 'zh_cn', voice, rate }
     return invoke('system_tts', {
         text: String(text ?? ''),
         lang: normalizedLanguage,
-        voice: voice ?? speech.voice ?? null,
+        voice: voice ?? resolveSpeechVoice(speech, normalizedLanguage),
         rate: rate ?? speech.rate ?? 1,
     });
 }

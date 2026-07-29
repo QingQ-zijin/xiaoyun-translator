@@ -33,14 +33,12 @@
     },
     "productName": "小允翻译",
     "mainBinaryName": "小允翻译",
-    "version": "4.5.4",
+    "version": "4.5.5",
     "identifier": "com.pot-app.desktop",
     "plugins": {
         "updater": {
             "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDgwRTdERTFFQUZBRTNDN0EKUldSNlBLNnZIdDduZ0pSRmdZYXNQSkFBTUp6MUNna2tUT3o2OWF2MWFHdzRZRHFIdDFURVZKMmsK",
-            "endpoints": [
-                "https://github.com/QingQ-zijin/xiaoyun-translator/releases/latest/download/latest.json"
-            ],
+            "endpoints": ["https://github.com/QingQ-zijin/xiaoyun-translator/releases/latest/download/latest.json"],
             "windows": {
                 "installMode": "passive"
             }

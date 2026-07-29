@@ -15,3 +15,7 @@ export const useVoice = () => {
 export const useSpeechRequest = () => {
     return useCallback((loadAudio) => sharedSpeechRequestGate.run(loadAudio), []);
 };
+
+export const cancelSpeechRequest = () => {
+    sharedSpeechRequestGate.cancel();
+};

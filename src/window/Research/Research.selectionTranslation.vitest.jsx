@@ -3,6 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const bridgeMocks = vi.hoisted(() => ({
     translateSelection: vi.fn(),
+    askPaper: vi.fn(),
+    speakText: vi.fn(),
+}));
+
+const speechMocks = vi.hoisted(() => ({
+    cancel: vi.fn(),
+    run: vi.fn(),
 }));
 
 vi.mock('../../domains/research/bridge', async () => {
@@ -26,8 +33,15 @@ vi.mock('../../domains/research/bridge', async () => {
         subscribeToPdfDrops: vi.fn().mockResolvedValue(() => {}),
         subscribeToResearchJobs: vi.fn().mockResolvedValue(() => {}),
         translateSelection: bridgeMocks.translateSelection,
+        askPaper: bridgeMocks.askPaper,
+        speakText: bridgeMocks.speakText,
     };
 });
+
+vi.mock('../../hooks/useVoice', () => ({
+    cancelSpeechRequest: speechMocks.cancel,
+    useSpeechRequest: () => speechMocks.run,
+}));
 
 vi.mock('./hooks/useResearchLibrary', () => ({
     useResearchLibrary: () => ({
@@ -126,7 +140,7 @@ vi.mock('./components/PdfWorkspace', async () => {
 });
 
 vi.mock('./components/SelectionTranslationPopover', () => ({
-    default: ({ open, loading, error, value, onRetry, onClose }) =>
+    default: ({ open, loading, error, value, onRetry, onClose, onSpeak, onExplain, aiState }) =>
         open ? (
             <aside aria-label='论文划词翻译状态'>
                 {loading ? <span role='status'>正在翻译</span> : null}
@@ -140,6 +154,19 @@ vi.mock('./components/SelectionTranslationPopover', () => ({
                     </button>
                 ) : null}
                 <output data-testid='selection-translation'>{value}</output>
+                {aiState?.answer ? <output data-testid='selection-explanation'>{aiState.answer}</output> : null}
+                <button
+                    type='button'
+                    onClick={() => onSpeak?.('First sentence.', { source: true })}
+                >
+                    朗读选择
+                </button>
+                <button
+                    type='button'
+                    onClick={onExplain}
+                >
+                    解释选择
+                </button>
                 <button
                     type='button'
                     onClick={onClose}
@@ -170,6 +197,17 @@ async function openReader() {
 
 beforeEach(() => {
     vi.clearAllMocks();
+    speechMocks.run.mockImplementation(async (loadAudio) => {
+        await loadAudio();
+        return true;
+    });
+    bridgeMocks.speakText.mockResolvedValue(new Uint8Array([1, 2, 3]));
+    bridgeMocks.askPaper.mockResolvedValue({
+        answer: '基于选区上下文的通用解释。',
+        citations: [],
+        refused: false,
+        retrievalMode: 'contextual',
+    });
 });
 
 afterEach(() => {
@@ -289,5 +327,43 @@ describe('论文划词翻译请求时序', () => {
             await Promise.resolve();
         });
         expect(screen.queryByLabelText('论文划词翻译状态')).toBeNull();
+    });
+
+    it('论文划词朗读会把合成音频交给共享播放器，并在关闭时停止', async () => {
+        bridgeMocks.translateSelection.mockResolvedValue('第一句。');
+        await openReader();
+        vi.useFakeTimers();
+
+        fireEvent.click(screen.getByRole('button', { name: '选择第一句' }));
+        await act(async () => vi.advanceTimersByTimeAsync(41));
+        fireEvent.click(screen.getByRole('button', { name: '朗读选择' }));
+        await act(async () => {
+            await Promise.resolve();
+        });
+        expect(bridgeMocks.speakText).toHaveBeenCalledWith('First sentence.', 'en');
+        expect(speechMocks.run).toHaveBeenCalledOnce();
+
+        fireEvent.click(screen.getByRole('button', { name: '关闭划词翻译' }));
+        expect(speechMocks.cancel).toHaveBeenCalled();
+    });
+
+    it('解释选区跳过嵌入安装阻塞，并保留上下文解释模式', async () => {
+        bridgeMocks.translateSelection.mockResolvedValue('第一句。');
+        await openReader();
+        vi.useFakeTimers();
+
+        fireEvent.click(screen.getByRole('button', { name: '选择第一句' }));
+        await act(async () => vi.advanceTimersByTimeAsync(41));
+        fireEvent.click(screen.getByRole('button', { name: '解释选择' }));
+        await act(async () => {
+            await Promise.resolve();
+        });
+        expect(screen.getByTestId('selection-explanation').textContent).toContain('通用解释');
+        expect(bridgeMocks.askPaper).toHaveBeenCalledWith(
+            expect.objectContaining({
+                intent: 'explain_selection',
+                selection: expect.objectContaining({ quote: 'First sentence.' }),
+            })
+        );
     });
 });

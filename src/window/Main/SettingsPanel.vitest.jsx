@@ -50,8 +50,10 @@ describe('统一设置页导航', () => {
 
         fireEvent.click(screen.getByRole('button', { name: '朗读' }));
         expect(screen.getByRole('heading', { name: 'macOS 本地朗读' })).toBeTruthy();
-        expect(screen.getByText(/macOS 系统 say 语音/u)).toBeTruthy();
-        expect(screen.getByPlaceholderText('自动选择 macOS 声音')).toBeTruthy();
+        expect(screen.getByText(/macOS 系统 say/u)).toBeTruthy();
+        expect(screen.getByPlaceholderText('自动选择 macOS 中文声音')).toBeTruthy();
+        expect(screen.getByPlaceholderText('自动选择 macOS 英文声音')).toBeTruthy();
+        expect(screen.getByText('系统本地语音 · 零下载 · 零显存')).toBeTruthy();
     });
 
     it('Windows 保留现有 Ctrl 与 SpeechSynthesizer 体验', async () => {
@@ -65,7 +67,10 @@ describe('统一设置页导航', () => {
         fireEvent.click(screen.getByRole('button', { name: '朗读' }));
         expect(screen.getByRole('heading', { name: 'Windows 本地朗读' })).toBeTruthy();
         expect(screen.getByText(/系统 SpeechSynthesizer/u)).toBeTruthy();
-        expect(screen.getByPlaceholderText('自动选择 Windows 声音')).toBeTruthy();
+        expect(screen.getByPlaceholderText('自动选择 Windows 中文声音')).toBeTruthy();
+        expect(screen.getByPlaceholderText('自动选择 Windows 英文声音')).toBeTruthy();
+        expect(screen.getByRole('button', { name: '试听中文音色' })).toBeTruthy();
+        expect(screen.getByRole('button', { name: '试听英文音色' })).toBeTruthy();
     });
 
     it('软件更新页共享版本、可用更新与手动操作状态', async () => {
