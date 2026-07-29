@@ -3709,6 +3709,7 @@
     box-shadow: 0 10px 30px rgba(30, 31, 42, 0.16);
     color: #4e515b;
     font-size: 12px;
+    pointer-events: none;
 }
 
 .research-job-float {

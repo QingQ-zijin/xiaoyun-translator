@@ -83,8 +83,14 @@ const INITIAL_DEMO_SELECTION = createSelectionAnchor({
 
 const PAPER_SELECTION_TRANSLATION_TIMEOUT_MS = 20_000;
 const PAPER_SELECTION_RECOVERY_TIMEOUT_MS = 130_000;
+const RESEARCH_TOAST_DURATION_MS = 2_200;
 const PLATFORM_PRESENTATION = getPlatformPresentation();
 const UNDO_SHORTCUT = formatShortcutForPlatform('CommandOrControl+Z');
+
+function createResearchToast(message) {
+    const text = String(message ?? '').trim();
+    return text ? { id: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`, text } : null;
+}
 
 export function availableLibraryPapers(papers = []) {
     return papers.filter((paper) => paper && !paper.trashedAt && !paper.archivedAt);
@@ -187,7 +193,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
     const [relations, setRelations] = useState({ outbound: [], inbound: [] });
     const [dragDepth, setDragDepth] = useState(0);
     const [importRequest, setImportRequest] = useState({ open: false, paths: null });
-    const [ocrNotice, setOcrNotice] = useState('');
+    const [toastNotice, setToastNotice] = useState(null);
     const [researchJob, setResearchJob] = useState(null);
     const ocrProducerRef = useRef(null);
     const indexedPageTextRef = useRef(new Map());
@@ -207,6 +213,15 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
     insightsRef.current = insights;
     annotationsRef.current = annotations;
     libraryPapersRef.current = library.papers;
+
+    useEffect(() => {
+        if (!toastNotice) return undefined;
+        const noticeId = toastNotice.id;
+        const timeoutId = globalThis.setTimeout(() => {
+            setToastNotice((current) => (current?.id === noticeId ? null : current));
+        }, RESEARCH_TOAST_DURATION_MS);
+        return () => globalThis.clearTimeout(timeoutId);
+    }, [toastNotice]);
 
     const invalidateSelectionTranslation = useCallback(() => {
         const active = translationRequestRef.current;
@@ -376,7 +391,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                 if (['failed', 'cancelled'].includes(event.state)) ocrProducerRef.current.cancelled = true;
             }
             if (event.kind?.startsWith('ocr-')) {
-                if (isActivePaper) setOcrNotice(event.message || '正在进行后台 OCR');
+                if (isActivePaper) setToastNotice(createResearchToast(event.message || '正在进行后台 OCR'));
                 if (event.state === 'completed' && !completedOcrJobsRef.current.has(event.jobId)) {
                     completedOcrJobsRef.current.add(event.jobId);
                     void rebuildDocumentOutline(event.paperId, 'ocr')
@@ -611,6 +626,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                 refused: false,
                 retrievalMode: '',
             });
+            setToastNotice(null);
             setDocument(null);
             library.markPaperOpened?.(nextPaperId);
             setPaperId(nextPaperId);
@@ -746,7 +762,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                     return next;
                 });
                 const actionLabel = action.type === 'delete' ? '删除' : action.type === 'update' ? '编辑' : '创建';
-                setOcrNotice(`已撤销最近一次${actionLabel}`);
+                setToastNotice(createResearchToast(`已撤销最近一次${actionLabel}`));
             }
             return true;
         } catch (reason) {
@@ -759,7 +775,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                 })
             ) {
                 annotationUndoStackRef.current = appendAnnotationUndoAction(annotationUndoStackRef.current, action);
-                setOcrNotice(`撤销批注失败：${String(reason?.message ?? reason)}`);
+                setToastNotice(createResearchToast(`撤销批注失败：${String(reason?.message ?? reason)}`));
             }
             return false;
         } finally {
@@ -796,7 +812,9 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
             if (!annotation) return;
             handlePageJump(annotation);
             const tags = (annotation.tags ?? []).map((tag) => `#${tag}`).join(' ');
-            setOcrNotice([annotation.note, tags].filter(Boolean).join(' · ') || '已定位到这条批注');
+            setToastNotice(
+                createResearchToast([annotation.note, tags].filter(Boolean).join(' · ') || '已定位到这条批注')
+            );
         },
         [handlePageJump]
     );
@@ -828,14 +846,16 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                     annotationUndoStackRef.current,
                     createAnnotationUndoAction('delete', { before: snapshot })
                 );
-                setOcrNotice(
-                    annotation.kind === 'highlight'
-                        ? `已取消高亮，可按 ${UNDO_SHORTCUT} 恢复`
-                        : `已删除批注，可按 ${UNDO_SHORTCUT} 恢复`
+                setToastNotice(
+                    createResearchToast(
+                        annotation.kind === 'highlight'
+                            ? `已取消高亮，可按 ${UNDO_SHORTCUT} 恢复`
+                            : `已删除批注，可按 ${UNDO_SHORTCUT} 恢复`
+                    )
                 );
             } catch (reason) {
                 if (sourceEpoch === readerEpochRef.current) {
-                    setOcrNotice(`删除批注失败：${String(reason?.message ?? reason)}`);
+                    setToastNotice(createResearchToast(`删除批注失败：${String(reason?.message ?? reason)}`));
                 }
             }
         },
@@ -862,7 +882,9 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
             translation: translation.text,
             lexicon,
         });
-        setOcrNotice(selectionKind === 'vocabulary' ? '单词已摘抄到论文记录' : '句子已摘抄到论文记录');
+        setToastNotice(
+            createResearchToast(selectionKind === 'vocabulary' ? '单词已摘抄到论文记录' : '句子已摘抄到论文记录')
+        );
     }, [handleSaveAnnotation, lexiconState.entry, selection, selectionKind, targetLanguage, translation.text]);
 
     const closeSelection = useCallback(() => {
@@ -962,7 +984,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
             try {
                 await runSpeechRequest(() => speakText(text, options?.source ? 'en' : targetLanguage));
             } catch (reason) {
-                setOcrNotice(`朗读失败：${String(reason?.message ?? reason)}`);
+                setToastNotice(createResearchToast(`朗读失败：${String(reason?.message ?? reason)}`));
             }
         },
         [runSpeechRequest, targetLanguage]
@@ -1003,6 +1025,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
         setSelectionOverlay(null);
         setSelectionMenu(null);
         setNoteEditorOpen(false);
+        setToastNotice(null);
         setDocument(null);
     };
 
@@ -1197,7 +1220,11 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
             setResearchJob(receipt);
             const producer = { jobId: receipt.jobId, paused: false, cancelled: false, enqueued: 0, completed: 0 };
             ocrProducerRef.current = producer;
-            setOcrNotice(scope === 'document' ? '正在后台准备整篇页面图像…' : `正在准备第 ${currentPage} 页图像…`);
+            setToastNotice(
+                createResearchToast(
+                    scope === 'document' ? '正在后台准备整篇页面图像…' : `正在准备第 ${currentPage} 页图像…`
+                )
+            );
             void (async () => {
                 for (const pageNumber of pages) {
                     while ((producer.paused || producer.enqueued - producer.completed >= 2) && !producer.cancelled) {
@@ -1209,9 +1236,9 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                     await enqueueOcrPage(receipt.jobId, document.paper.id, pageNumber, imageDataUrl);
                     producer.enqueued += 1;
                 }
-            })().catch((reason) => setOcrNotice(`扫描识别失败：${String(reason)}`));
+            })().catch((reason) => setToastNotice(createResearchToast(`扫描识别失败：${String(reason)}`)));
         } catch (reason) {
-            setOcrNotice(`无法启动扫描识别：${String(reason)}`);
+            setToastNotice(createResearchToast(`无法启动扫描识别：${String(reason)}`));
         }
     };
 
@@ -1463,12 +1490,14 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                     onProjectChange={library.updatePaperProjects}
                 />
             )}
-            {ocrNotice ? (
+            {toastNotice ? (
                 <div
+                    key={toastNotice.id}
                     className='research-toast'
                     role='status'
+                    aria-live='polite'
                 >
-                    {ocrNotice}
+                    {toastNotice.text}
                 </div>
             ) : null}
             {researchJob?.jobId && !['completed', 'failed', 'cancelled'].includes(researchJob.state) ? (

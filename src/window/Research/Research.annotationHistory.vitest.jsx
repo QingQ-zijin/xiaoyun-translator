@@ -191,6 +191,8 @@ describe('论文批注界面撤销链路', () => {
 
         fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true });
         await screen.findByText('批注 0');
+        expect(screen.getByRole('status').textContent).toContain('已撤销最近一次创建');
+        await waitFor(() => expect(screen.queryByRole('status')).toBeNull(), { timeout: 5_000 });
         expect(bridgeMocks.deleteAnnotation).toHaveBeenCalledTimes(2);
     });
 
