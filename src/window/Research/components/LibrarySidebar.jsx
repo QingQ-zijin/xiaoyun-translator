@@ -25,6 +25,13 @@ const ANNOTATION_KIND_LABELS = {
     highlight: '高亮',
 };
 
+const ANNOTATION_KIND_FILTERS = [
+    { id: 'vocabulary', countKey: 'vocabulary', label: '词汇' },
+    { id: 'excerpt', countKey: 'excerpts', label: '摘抄' },
+    { id: 'note', countKey: 'notes', label: '笔记' },
+    { id: 'highlight', countKey: 'highlights', label: '高亮' },
+];
+
 const READER_TAB_IDS = ['insights', 'outline', 'annotations', 'relations'];
 
 function handleReaderTabKeyDown(event) {
@@ -43,7 +50,7 @@ function handleReaderTabKeyDown(event) {
     tabs[nextIndex].click();
 }
 
-function AnnotationRow({ annotation, onJump, onDelete }) {
+function AnnotationRow({ annotation, onJump, onOpen, onDelete }) {
     const colorMap = {
         violet: '#c9bff7',
         amber: '#f5dc91',
@@ -60,7 +67,10 @@ function AnnotationRow({ annotation, onJump, onDelete }) {
             <button
                 className='recent-annotation__open'
                 type='button'
-                onClick={() => onJump?.(annotation)}
+                onClick={() => {
+                    if (kind === 'note' && onOpen) onOpen(annotation);
+                    else onJump?.(annotation);
+                }}
             >
                 <span
                     className='recent-annotation__swatch'
@@ -109,6 +119,7 @@ export default function LibrarySidebar({
     annotations = [],
     onBack,
     onJump,
+    onOpenAnnotation,
     onDeleteAnnotation,
     query,
     onQueryChange,
@@ -137,26 +148,46 @@ export default function LibrarySidebar({
     chapterInsightState,
     onSelectChapter,
     onRegenerateChapter,
+    readerTab: controlledReaderTab,
+    onReaderTabChange,
+    annotationKindFilter: controlledAnnotationKindFilter,
+    onAnnotationKindFilterChange,
 }) {
     const isBook = paper?.contentKind === 'book';
     const defaultReaderTab = isBook ? 'outline' : 'insights';
-    const [readerTab, setReaderTab] = useState(defaultReaderTab);
+    const [localReaderTab, setLocalReaderTab] = useState(defaultReaderTab);
+    const [localAnnotationKindFilter, setLocalAnnotationKindFilter] = useState('');
     const [annotationTag, setAnnotationTag] = useState('');
+    const readerTab = controlledReaderTab ?? localReaderTab;
+    const annotationKindFilter = controlledAnnotationKindFilter ?? localAnnotationKindFilter;
     const activeReaderTab = isBook && readerTab === 'insights' ? 'outline' : readerTab;
     const annotationSummary = useMemo(() => summarizeAnnotations(annotations), [annotations]);
     const visibleAnnotations = useMemo(
         () =>
-            annotationTag
-                ? annotations.filter((annotation) =>
-                      annotation.tags?.some((tag) => tag.toLocaleLowerCase() === annotationTag.toLocaleLowerCase())
-                  )
-                : annotations,
-        [annotationTag, annotations]
+            annotations.filter((annotation) => {
+                const matchesKind = !annotationKindFilter || annotationKind(annotation) === annotationKindFilter;
+                const matchesTag =
+                    !annotationTag ||
+                    annotation.tags?.some((tag) => tag.toLocaleLowerCase() === annotationTag.toLocaleLowerCase());
+                return matchesKind && matchesTag;
+            }),
+        [annotationKindFilter, annotationTag, annotations]
     );
+    const selectReaderTab = (nextTab) => {
+        if (controlledReaderTab == null) setLocalReaderTab(nextTab);
+        onReaderTabChange?.(nextTab);
+    };
+    const selectAnnotationKind = (kind) => {
+        const nextKind = annotationKindFilter === kind ? '' : kind;
+        if (controlledAnnotationKindFilter == null) setLocalAnnotationKindFilter(nextKind);
+        onAnnotationKindFilterChange?.(nextKind);
+    };
 
     useEffect(() => {
-        setReaderTab(defaultReaderTab);
-    }, [defaultReaderTab, paper?.id]);
+        if (controlledReaderTab == null) setLocalReaderTab(defaultReaderTab);
+        if (controlledAnnotationKindFilter == null) setLocalAnnotationKindFilter('');
+        setAnnotationTag('');
+    }, [controlledAnnotationKindFilter, controlledReaderTab, defaultReaderTab, paper?.id]);
 
     if (mode === 'reader') {
         return (
@@ -193,7 +224,7 @@ export default function LibrarySidebar({
                             aria-selected={activeReaderTab === 'insights'}
                             tabIndex={activeReaderTab === 'insights' ? 0 : -1}
                             className={activeReaderTab === 'insights' ? 'is-active' : ''}
-                            onClick={() => setReaderTab('insights')}
+                            onClick={() => selectReaderTab('insights')}
                         >
                             <PiSparkle aria-hidden='true' />
                             <span>概要</span>
@@ -207,7 +238,7 @@ export default function LibrarySidebar({
                         aria-selected={activeReaderTab === 'outline'}
                         tabIndex={activeReaderTab === 'outline' ? 0 : -1}
                         className={activeReaderTab === 'outline' ? 'is-active' : ''}
-                        onClick={() => setReaderTab('outline')}
+                        onClick={() => selectReaderTab('outline')}
                     >
                         <PiListBullets aria-hidden='true' />
                         <span>{isBook ? '目录' : '章节'}</span>
@@ -216,14 +247,15 @@ export default function LibrarySidebar({
                         type='button'
                         id='reader-sidebar-tab-annotations'
                         role='tab'
+                        aria-label='笔记与摘录'
                         aria-controls='reader-sidebar-panel'
                         aria-selected={activeReaderTab === 'annotations'}
                         tabIndex={activeReaderTab === 'annotations' ? 0 : -1}
                         className={activeReaderTab === 'annotations' ? 'is-active' : ''}
-                        onClick={() => setReaderTab('annotations')}
+                        onClick={() => selectReaderTab('annotations')}
                     >
                         <PiBookmarkSimple aria-hidden='true' />
-                        <span>摘录</span>
+                        <span>笔记</span>
                         {annotationSummary.total ? <small>{annotationSummary.total}</small> : null}
                     </button>
                     <button
@@ -234,7 +266,7 @@ export default function LibrarySidebar({
                         aria-selected={activeReaderTab === 'relations'}
                         tabIndex={activeReaderTab === 'relations' ? 0 : -1}
                         className={activeReaderTab === 'relations' ? 'is-active' : ''}
-                        onClick={() => setReaderTab('relations')}
+                        onClick={() => selectReaderTab('relations')}
                     >
                         <PiShareNetwork aria-hidden='true' />
                         <span>引用</span>
@@ -269,18 +301,18 @@ export default function LibrarySidebar({
                     {activeReaderTab === 'annotations' ? (
                         <section className='annotation-summary'>
                             <div className='annotation-summary__counts'>
-                                <span>
-                                    <strong>{annotationSummary.vocabulary}</strong>词汇
-                                </span>
-                                <span>
-                                    <strong>{annotationSummary.excerpts}</strong>摘抄
-                                </span>
-                                <span>
-                                    <strong>{annotationSummary.notes}</strong>笔记
-                                </span>
-                                <span>
-                                    <strong>{annotationSummary.highlights}</strong>高亮
-                                </span>
+                                {ANNOTATION_KIND_FILTERS.map((filter) => (
+                                    <button
+                                        type='button'
+                                        key={filter.id}
+                                        className={annotationKindFilter === filter.id ? 'is-active' : ''}
+                                        aria-pressed={annotationKindFilter === filter.id}
+                                        onClick={() => selectAnnotationKind(filter.id)}
+                                    >
+                                        <strong>{annotationSummary[filter.countKey]}</strong>
+                                        {filter.label}
+                                    </button>
+                                ))}
                             </div>
                             <div
                                 className='annotation-summary__tags'
@@ -311,6 +343,7 @@ export default function LibrarySidebar({
                                         key={annotation.id}
                                         annotation={annotation}
                                         onJump={onJump}
+                                        onOpen={onOpenAnnotation}
                                         onDelete={onDeleteAnnotation}
                                     />
                                 ))}

@@ -85,7 +85,7 @@ describe('论文侧栏拖动宽度', () => {
 
         const restored = renderHook(() => useResearchSidebarResize());
         expect(restored.result.current.collapsed).toBe(true);
-        act(() => restored.result.current.toggleCollapsed());
+        act(() => restored.result.current.expand());
         expect(restored.result.current.collapsed).toBe(false);
         expect(restored.result.current.width).toBe(DEFAULT_RESEARCH_SIDEBAR_WIDTH);
     });

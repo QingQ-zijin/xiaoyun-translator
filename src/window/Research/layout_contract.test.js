@@ -50,17 +50,15 @@ test('论文切换、只读缩放、批注引用汇总与任务浮层均有布�
     assert.notEqual(readRule(css, '.paper-relations > button'), '', '引用记录缺少样式');
 });
 
-test('文内删除操作只在批注标签菜单内出现，并可接收真实指针操作', () => {
+test('正文批注层只渲染高亮矩形，不包含遮挡内容的按钮、菜单或标签数字', () => {
     const css = readProjectFile('src/window/Research/research.css');
-    const controlRule = readRule(css, '.pdf-annotation-control');
-    const menuRule = readRule(css, '.pdf-annotation-menu');
 
     assert.match(css, /\.pdf-annotation-layer\s*\{[^}]*pointer-events:\s*none/u);
-    assert.match(controlRule, /position:\s*absolute/u);
-    assert.match(controlRule, /pointer-events:\s*auto/u);
-    assert.match(menuRule, /position:\s*absolute/u);
-    assert.match(css, /\.pdf-annotation-menu\s*>\s*button\s*\{[^}]*cursor:\s*pointer/u);
-    assert.doesNotMatch(css, /\.pdf-annotation-delete\s*\{/u);
+    assert.match(readRule(css, '.pdf-annotation-mark'), /position:\s*absolute/u);
+    assert.doesNotMatch(css, /\.pdf-annotation-mark\.has-tags::after\s*\{/u);
+    assert.doesNotMatch(css, /\.pdf-annotation-control\s*\{/u);
+    assert.doesNotMatch(css, /\.pdf-annotation-trigger(?:[\s.:{])/u);
+    assert.doesNotMatch(css, /\.pdf-annotation-menu(?:[\s>{])/u);
 });
 
 test('摘录标签与列表在最小侧栏宽度下仍保持横排且正文不被操作列挤压', () => {

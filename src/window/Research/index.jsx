@@ -39,6 +39,7 @@ import {
 import { DEMO_PAGE, DEMO_TRANSLATION } from '../../domains/research/demoData';
 import { UNIFIED_OLLAMA_MODEL } from '../../domains/ollama/runtime';
 import {
+    annotationKind,
     classifySelection,
     createSelectionAnchor,
     PDF_SELECTION_DEBOUNCE_MS,
@@ -190,6 +191,9 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
     const [selectionOverlay, setSelectionOverlay] = useState(null);
     const [selectionMenu, setSelectionMenu] = useState(null);
     const [noteEditorOpen, setNoteEditorOpen] = useState(false);
+    const [noteEditorTarget, setNoteEditorTarget] = useState(null);
+    const [readerSidebarTab, setReaderSidebarTab] = useState('insights');
+    const [annotationKindFilter, setAnnotationKindFilter] = useState('');
     const [relations, setRelations] = useState({ outbound: [], inbound: [] });
     const [dragDepth, setDragDepth] = useState(0);
     const [importRequest, setImportRequest] = useState({ open: false, paths: null });
@@ -329,6 +333,10 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
             setDocument(null);
             setAnnotations([]);
             setRelations({ outbound: [], inbound: [] });
+            setNoteEditorOpen(false);
+            setNoteEditorTarget(null);
+            setReaderSidebarTab('insights');
+            setAnnotationKindFilter('');
             setInsights({ status: 'not_started' });
             setInsightsError('');
             setChapterInsights([]);
@@ -359,6 +367,8 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                 setInsightsError(nextInsights?.status === 'failed' ? nextInsights.error ?? '' : '');
                 setChapterInsights(nextChapterInsights ?? []);
                 setChapterInsightState({ selectedIndex: null, status: 'idle', insight: null, error: '' });
+                setReaderSidebarTab(nextDocument.paper?.contentKind === 'book' ? 'outline' : 'insights');
+                setAnnotationKindFilter('');
                 const progress = nextDocument.progress ?? nextDocument.paper?.progress ?? {};
                 setCurrentPage(progress.pageNumber ?? 1);
                 setScale(progress.scale ?? 1.25);
@@ -368,6 +378,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                     setSelectionOverlay(null);
                     setSelectionMenu(null);
                     setNoteEditorOpen(false);
+                    setNoteEditorTarget(null);
                     setTranslation({ status: 'idle', loading: false, text: '', error: '' });
                     setLexiconState({ loading: false, entry: null, error: '' });
                 }
@@ -566,6 +577,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
             setSelectionOverlay(overlay);
             setSelectionMenu(null);
             setNoteEditorOpen(false);
+            setNoteEditorTarget(null);
             setTargetLanguage((current) => resolveAcademicTargetLanguage(anchor?.quote, current));
             setTranslation({ status: 'loading', loading: true, text: '', error: '' });
             setLexiconState({ loading: false, entry: null, error: '' });
@@ -616,6 +628,9 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
             setSelectionOverlay(null);
             setSelectionMenu(null);
             setNoteEditorOpen(false);
+            setNoteEditorTarget(null);
+            setReaderSidebarTab('insights');
+            setAnnotationKindFilter('');
             setTranslation({ status: 'idle', loading: false, text: '', error: '' });
             setLexiconState({ loading: false, entry: null, error: '' });
             setAiState({
@@ -651,6 +666,21 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
             else pdfRef.current?.goToPage(safePage);
         },
         [pageCount]
+    );
+
+    const handleOpenAnnotation = useCallback(
+        (annotation) => {
+            if (!annotation) return;
+            handlePageJump(annotation);
+            if (annotationKind(annotation) !== 'note') return;
+            sidebarResize.expand();
+            setReaderSidebarTab('annotations');
+            setAnnotationKindFilter('note');
+            setSelectionMenu(null);
+            setNoteEditorTarget(annotation);
+            setNoteEditorOpen(true);
+        },
+        [handlePageJump, sidebarResize.expand]
     );
 
     const requestChapterInsights = useCallback(
@@ -730,9 +760,15 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                 ? createAnnotationUndoAction('update', { before: previous, after: saved })
                 : createAnnotationUndoAction('create', { after: saved });
             annotationUndoStackRef.current = appendAnnotationUndoAction(annotationUndoStackRef.current, action);
+            if (annotationKind(saved) === 'note') {
+                sidebarResize.expand();
+                setReaderSidebarTab('annotations');
+                setAnnotationKindFilter('note');
+                setToastNotice(createResearchToast(previous ? '笔记已更新' : '笔记已保存，可在左侧查看'));
+            }
             return saved;
         },
-        [document?.paper]
+        [document?.paper, sidebarResize.expand]
     );
 
     const undoLatestAnnotation = useCallback(async () => {
@@ -799,6 +835,18 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
         [annotations, library.tags]
     );
 
+    const openNoteEditorForSelection = useCallback(() => {
+        if (!selection) return;
+        setNoteEditorTarget(selection);
+        setNoteEditorOpen(true);
+    }, [selection]);
+
+    const closeNoteEditor = useCallback(() => {
+        setNoteEditorOpen(false);
+        setNoteEditorTarget(null);
+        setSelectionMenu(null);
+    }, []);
+
     const highlightSelection = useCallback(
         async ({ color = 'violet' } = {}) => {
             if (!selection) return;
@@ -810,14 +858,23 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
     const handleAnnotationActivate = useCallback(
         (annotation) => {
             if (!annotation) return;
+            if (annotationKind(annotation) === 'note') {
+                handleOpenAnnotation(annotation);
+                return;
+            }
             handlePageJump(annotation);
             const tags = (annotation.tags ?? []).map((tag) => `#${tag}`).join(' ');
             setToastNotice(
                 createResearchToast([annotation.note, tags].filter(Boolean).join(' · ') || '已定位到这条批注')
             );
         },
-        [handlePageJump]
+        [handleOpenAnnotation, handlePageJump]
     );
+
+    const handlePdfLinkError = useCallback((reason) => {
+        const detail = String(reason?.message ?? reason ?? '').trim();
+        setToastNotice(createResearchToast(detail ? `PDF 链接无法打开：${detail}` : 'PDF 链接无法打开'));
+    }, []);
 
     const handleDeleteAnnotation = useCallback(
         async (annotation) => {
@@ -895,6 +952,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
         setSelectionOverlay(null);
         setSelectionMenu(null);
         setNoteEditorOpen(false);
+        setNoteEditorTarget(null);
         setTranslation({ status: 'idle', loading: false, text: '', error: '' });
         setLexiconState({ loading: false, entry: null, error: '' });
         setAiState({
@@ -1025,6 +1083,9 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
         setSelectionOverlay(null);
         setSelectionMenu(null);
         setNoteEditorOpen(false);
+        setNoteEditorTarget(null);
+        setReaderSidebarTab('insights');
+        setAnnotationKindFilter('');
         setToastNotice(null);
         setDocument(null);
     };
@@ -1288,6 +1349,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                     chapterInsightState={chapterInsightState}
                     onBack={closeReader}
                     onJump={handlePageJump}
+                    onOpenAnnotation={handleOpenAnnotation}
                     onSelectChapter={handleSelectChapter}
                     onRegenerateChapter={handleRegenerateChapter}
                     query={library.query}
@@ -1317,6 +1379,10 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                     onOpenPaper={openPaper}
                     onRegenerate={regenerateInsights}
                     onDeleteAnnotation={handleDeleteAnnotation}
+                    readerTab={readerSidebarTab}
+                    onReaderTabChange={setReaderSidebarTab}
+                    annotationKindFilter={annotationKindFilter}
+                    onAnnotationKindFilterChange={setAnnotationKindFilter}
                 />
             ) : null}
             {!sidebarCollapsed ? (
@@ -1371,9 +1437,11 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                             setSelectionMenu(menu);
                             setSelectionOverlay(null);
                             setNoteEditorOpen(false);
+                            setNoteEditorTarget(null);
                         }}
                         onAnnotationActivate={handleAnnotationActivate}
                         onAnnotationDelete={handleDeleteAnnotation}
+                        onLinkError={handlePdfLinkError}
                         onProgress={handleProgress}
                         onScaleChange={setScale}
                         onScanPage={() => handleScan('page')}
@@ -1396,7 +1464,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                         onSpeak={handleSelectionSpeak}
                         onHighlight={highlightSelection}
                         onSaveExcerpt={excerptSelection}
-                        onOpenNote={() => setNoteEditorOpen(true)}
+                        onOpenNote={openNoteEditorForSelection}
                         onExplain={() => handleAsk('解释所选内容', { intent: RESEARCH_AI_INTENTS.EXPLAIN_SELECTION })}
                         onRetry={retrySelectionTranslation}
                         onClose={closeSelection}
@@ -1422,7 +1490,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                                     boundaryRect: selectionMenu.boundaryRect,
                                 });
                             }
-                            setNoteEditorOpen(true);
+                            openNoteEditorForSelection();
                         }}
                         onHighlight={highlightSelection}
                         onSaveExcerpt={excerptSelection}
@@ -1444,25 +1512,28 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                         onClose={() => setSelectionMenu(null)}
                     />
                     <AnnotationEditorPopover
-                        open={Boolean(selection && noteEditorOpen)}
-                        selection={selection}
+                        open={Boolean(noteEditorTarget && noteEditorOpen)}
+                        selection={noteEditorTarget}
                         anchorRect={
-                            selectionMenu
-                                ? {
-                                      left: selectionMenu.clientX,
-                                      right: selectionMenu.clientX,
-                                      top: selectionMenu.clientY,
-                                      bottom: selectionMenu.clientY,
-                                  }
-                                : selectionOverlay?.anchorRect
+                            noteEditorTarget?.id
+                                ? undefined
+                                : selectionMenu
+                                  ? {
+                                        left: selectionMenu.clientX,
+                                        right: selectionMenu.clientX,
+                                        top: selectionMenu.clientY,
+                                        bottom: selectionMenu.clientY,
+                                    }
+                                  : selectionOverlay?.anchorRect
                         }
-                        boundaryRect={selectionMenu?.boundaryRect ?? selectionOverlay?.boundaryRect}
+                        boundaryRect={
+                            noteEditorTarget?.id
+                                ? undefined
+                                : selectionMenu?.boundaryRect ?? selectionOverlay?.boundaryRect
+                        }
                         tagSuggestions={annotationTagSuggestions}
                         onSave={handleSaveAnnotation}
-                        onClose={() => {
-                            setNoteEditorOpen(false);
-                            setSelectionMenu(null);
-                        }}
+                        onClose={closeNoteEditor}
                     />
                 </>
             ) : (

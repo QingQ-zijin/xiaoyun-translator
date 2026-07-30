@@ -16,6 +16,7 @@ export default function AnnotationEditorPopover({
     onClose,
 }) {
     const panelRef = useRef(null);
+    const onCloseRef = useRef(onClose);
     const [position, setPosition] = useState(null);
     const [note, setNote] = useState('');
     const [tagText, setTagText] = useState('');
@@ -26,28 +27,46 @@ export default function AnnotationEditorPopover({
         () => normalizeAnnotationTags(tagSuggestions.map((tag) => (typeof tag === 'string' ? tag : tag?.name))),
         [tagSuggestions]
     );
+    const isEditing = Boolean(selection?.id);
+
+    useEffect(() => {
+        onCloseRef.current = onClose;
+    }, [onClose]);
+
+    useEffect(() => {
+        if (!open) return;
+        setNote(String(selection?.note ?? ''));
+        setTagText(normalizeAnnotationTags(selection?.tags).join(', '));
+        setColor(selection?.color ?? 'violet');
+        setSaving(false);
+        setError('');
+    }, [open, selection?.id, selection?.updatedAt]);
 
     useEffect(() => {
         if (!open) return undefined;
-        setNote('');
-        setTagText('');
-        setColor('violet');
-        setError('');
-        const closeOnEscape = (event) => event.key === 'Escape' && onClose?.();
+        const closeOnEscape = (event) => event.key === 'Escape' && onCloseRef.current?.();
         globalThis.addEventListener?.('keydown', closeOnEscape);
         return () => globalThis.removeEventListener?.('keydown', closeOnEscape);
-    }, [onClose, open, selection?.quote]);
+    }, [open]);
 
     useLayoutEffect(() => {
-        if (!open || !anchorRect) return undefined;
+        if (!open) return undefined;
         const update = () => {
             const measured = panelRef.current?.getBoundingClientRect?.();
+            const viewportWidth = globalThis.innerWidth;
+            const viewportHeight = globalThis.innerHeight;
+            const resolvedAnchor = anchorRect ?? {
+                left: viewportWidth / 2,
+                right: viewportWidth / 2,
+                top: viewportHeight / 2,
+                bottom: viewportHeight / 2,
+            };
             setPosition(
                 computeFloatingPosition({
-                    anchorRect,
+                    anchorRect: resolvedAnchor,
                     floatingSize: { width: measured?.width || 390, height: measured?.height || 340 },
-                    viewportWidth: globalThis.innerWidth,
-                    viewportHeight: globalThis.innerHeight,
+                    viewportWidth,
+                    viewportHeight,
                     boundaryRect,
                 })
             );
@@ -55,10 +74,14 @@ export default function AnnotationEditorPopover({
         update();
         const observer = globalThis.ResizeObserver ? new ResizeObserver(update) : null;
         if (panelRef.current) observer?.observe(panelRef.current);
-        return () => observer?.disconnect();
+        globalThis.addEventListener?.('resize', update);
+        return () => {
+            observer?.disconnect();
+            globalThis.removeEventListener?.('resize', update);
+        };
     }, [anchorRect, boundaryRect, open]);
 
-    if (!open || !selection || !anchorRect) return null;
+    if (!open || !selection) return null;
 
     const submit = async (event) => {
         event.preventDefault();
@@ -101,11 +124,11 @@ export default function AnnotationEditorPopover({
             }
             onSubmit={submit}
             role='dialog'
-            aria-label='添加论文笔记'
+            aria-label={isEditing ? '编辑论文笔记' : '添加论文笔记'}
         >
             <header>
                 <div>
-                    <strong>添加笔记与标签</strong>
+                    <strong>{isEditing ? '编辑笔记与标签' : '添加笔记与标签'}</strong>
                     <span>第 {selection.pageNumber} 页</span>
                 </div>
                 <button

@@ -1,0 +1,45 @@
+.pdf-native-link-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.pdf-native-link-layer > .annotationLayer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    color-scheme: only light;
+    pointer-events: none;
+    transform-origin: 0 0;
+}
+
+.pdf-native-link-layer > .annotationLayer section {
+    position: absolute;
+    box-sizing: border-box;
+    text-align: initial;
+    pointer-events: auto;
+    transform-origin: 0 0;
+    user-select: none;
+}
+
+.pdf-native-link-layer > .annotationLayer :is(.linkAnnotation, .buttonWidgetAnnotation.pushButton) > a {
+    position: absolute;
+    inset: 0;
+    cursor: pointer;
+    outline: none;
+}
+
+.pdf-native-link-layer > .annotationLayer .linkAnnotation > a:focus-visible {
+    outline: 2px solid rgba(119, 101, 232, 0.82);
+    outline-offset: 1px;
+}
+
+.pdf-native-link-layer > .annotationLayer .linkAnnotation:not(.hasBorder) > a:hover {
+    background: rgba(119, 101, 232, 0.14);
+}
+
+.pdf-page:has(.textLayer.selecting) .pdf-native-link-layer > .annotationLayer section {
+    pointer-events: none;
+}

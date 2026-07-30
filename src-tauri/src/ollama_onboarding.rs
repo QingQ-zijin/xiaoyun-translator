@@ -407,7 +407,7 @@ fn official_download_url() -> &'static str {
     }
 }
 
-fn open_url_with_system(url: &str) -> Result<(), String> {
+pub(crate) fn open_url_with_system(url: &str) -> Result<(), String> {
     let result = if cfg!(windows) {
         Command::new("rundll32.exe")
             .args(["url.dll,FileProtocolHandler", url])

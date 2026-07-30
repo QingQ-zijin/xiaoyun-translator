@@ -246,4 +246,49 @@ describe('小允论文阅读器侧栏', () => {
         fireEvent.click(screen.getByRole('button', { name: '取消高亮：highlight quote' }));
         expect(onDeleteAnnotation).toHaveBeenCalledWith(annotations[3]);
     });
+
+    it('支持受控进入笔记筛选，并从笔记行打开现有笔记', () => {
+        const onOpenAnnotation = vi.fn();
+        const onAnnotationKindFilterChange = vi.fn();
+        const annotations = [
+            {
+                id: 'note-1',
+                kind: 'note',
+                quote: 'note quote',
+                note: '需要复核这个结论',
+                pageNumber: 8,
+                color: 'green',
+            },
+            { id: 'excerpt-1', kind: 'excerpt', quote: 'excerpt quote', pageNumber: 9 },
+        ];
+
+        render(
+            <LibrarySidebar
+                mode='reader'
+                paper={{ id: 'paper-1', title: 'TMFA' }}
+                insights={insight}
+                annotations={annotations}
+                readerTab='annotations'
+                annotationKindFilter='note'
+                onReaderTabChange={() => {}}
+                onAnnotationKindFilterChange={onAnnotationKindFilterChange}
+                onOpenAnnotation={onOpenAnnotation}
+                onBack={() => {}}
+            />
+        );
+
+        const annotationTab = screen.getByRole('tab', { name: /笔记与摘录/u });
+        expect(annotationTab.getAttribute('aria-selected')).toBe('true');
+        expect(annotationTab.textContent).toContain('笔记');
+        expect(annotationTab.textContent).not.toContain('笔记与摘录');
+        expect(screen.getByText('需要复核这个结论')).toBeTruthy();
+        expect(screen.queryByText('excerpt quote')).toBeNull();
+        expect(screen.getByRole('button', { name: /^1\s*笔记$/u }).getAttribute('aria-pressed')).toBe('true');
+
+        fireEvent.click(screen.getByRole('button', { name: /^note quote/u }));
+        expect(onOpenAnnotation).toHaveBeenCalledWith(annotations[0]);
+
+        fireEvent.click(screen.getByRole('button', { name: /^1\s*笔记$/u }));
+        expect(onAnnotationKindFilterChange).toHaveBeenCalledWith('');
+    });
 });

@@ -408,6 +408,32 @@ export function getPdfSource(document) {
     return isTauriRuntime() ? convertFileSrc(path) : path;
 }
 
+function normalizePdfExternalUrl(value) {
+    const candidate = String(value ?? '').trim();
+    if (!candidate || /[\u0000-\u001f\u007f]/u.test(candidate)) return '';
+    try {
+        const parsed = new URL(candidate);
+        const protocol = parsed.protocol.toLocaleLowerCase();
+        if (!['http:', 'https:', 'mailto:'].includes(protocol)) return '';
+        if ((protocol === 'http:' || protocol === 'https:') && !parsed.hostname) return '';
+        if (protocol === 'mailto:' && !parsed.pathname) return '';
+        return parsed.href;
+    } catch {
+        return '';
+    }
+}
+
+export async function openPdfExternalUrl(url) {
+    const safeUrl = normalizePdfExternalUrl(url);
+    if (!safeUrl) throw new Error('PDF 外部链接只允许使用 http、https 或 mailto');
+    if (isTauriRuntime()) {
+        await invokeResearch('research_open_external_url', { url: safeUrl });
+        return safeUrl;
+    }
+    globalThis.open?.(safeUrl, '_blank', 'noopener,noreferrer');
+    return safeUrl;
+}
+
 export async function saveReadingProgress(paperId, progress) {
     if (isTauriRuntime()) return invokeResearch('research_save_progress', { paperId, ...progress });
     const timestamp = now();

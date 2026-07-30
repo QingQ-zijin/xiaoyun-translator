@@ -7,6 +7,7 @@
 
 mod cmd;
 mod config;
+mod external_url;
 mod hotkey;
 mod ollama_onboarding;
 mod research;
@@ -23,6 +24,7 @@ mod window;
 
 use cmd::*;
 use config::*;
+use external_url::research_open_external_url;
 use hotkey::*;
 use log::{info, warn};
 use ollama_onboarding::*;
@@ -180,6 +182,7 @@ fn main() {
             research_delete_project,
             research_set_paper_projects,
             research_get_document,
+            research_open_external_url,
             research_replace_document_outline,
             research_rebuild_document_outline,
             research_save_progress,

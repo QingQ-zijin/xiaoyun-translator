@@ -8,8 +8,7 @@ import {
     useRef,
     useState,
 } from 'react';
-import { PiBookmarkSimple, PiFileMagnifyingGlass, PiSpinnerGap, PiTrash } from 'react-icons/pi';
-import { LuStickyNote } from 'react-icons/lu';
+import { PiFileMagnifyingGlass, PiSpinnerGap } from 'react-icons/pi';
 
 import { DEMO_PAGE } from '../../../domains/research/demoData';
 import {
@@ -18,6 +17,7 @@ import {
     getVirtualPageWindow,
     shouldTranslateSelection,
 } from '../../../domains/research/model';
+import { openPdfExternalUrl } from '../../../domains/research/bridge';
 import { mergeClientRects } from '../floatingPosition';
 import {
     computeAnchoredScroll,
@@ -31,6 +31,8 @@ import { createPdfDocumentOptions, loadPdfRuntime, loadPdfTextLayerBuilder } fro
 import { capturePdfVisualLine, isNearHorizontalPdfGesture, resolvePdfHorizontalRange } from '../pdfSelection';
 import { extractSharedPdfText } from '../pdfTextExtraction';
 import { deriveOutlineFromPages, extractNativePdfOutline } from '../pdfOutline';
+import { createPdfLinkService } from '../pdfLinks';
+import PdfNativeLinkLayer from './PdfNativeLinkLayer';
 import TextDocumentPage, { isTextResearchDocument } from './TextDocumentPage';
 
 const PDF_BASE_WIDTH = 650;
@@ -68,122 +70,24 @@ function isInteractiveElement(target) {
     return Boolean(target?.closest?.('button, input, select, textarea, a, [contenteditable="true"]'));
 }
 
-function AnnotationMarks({ annotations, onActivate, onDelete }) {
-    const [activeAnnotationId, setActiveAnnotationId] = useState('');
-
-    useEffect(() => {
-        if (!activeAnnotationId) return undefined;
-        const close = () => setActiveAnnotationId('');
-        const handleKeyDown = (event) => {
-            if (event.key === 'Escape') close();
-        };
-        const handleOutsidePointerDown = (event) => {
-            const control = event.target?.closest?.('[data-annotation-control]');
-            if (control?.dataset.annotationId === activeAnnotationId) return;
-            close();
-        };
-        globalThis.addEventListener?.('keydown', handleKeyDown);
-        globalThis.document?.addEventListener?.('pointerdown', handleOutsidePointerDown, true);
-        return () => {
-            globalThis.removeEventListener?.('keydown', handleKeyDown);
-            globalThis.document?.removeEventListener?.('pointerdown', handleOutsidePointerDown, true);
-        };
-    }, [activeAnnotationId]);
-
+function AnnotationMarks({ annotations }) {
     return annotations.flatMap((annotation) => {
         const tags = Array.isArray(annotation.tags) ? annotation.tags.filter(Boolean) : [];
         const description = [tags.map((tag) => `#${tag}`).join(' '), annotation.note].filter(Boolean).join(' · ');
         const rects = annotation.rects ?? [];
-        const hidesInlineControls = annotation.kind === 'excerpt' || annotation.kind === 'vocabulary';
-        const marks = rects.map((rect, index) => {
-            const showsTagCount = !hidesInlineControls && index === 0 && tags.length;
-            return (
-                <span
-                    className={`pdf-annotation-mark pdf-annotation-mark--${annotation.color ?? 'violet'} ${showsTagCount ? 'has-tags' : ''}`}
-                    data-tag-count={showsTagCount ? `#${tags.length}` : undefined}
-                    key={`${annotation.id}-${index}`}
-                    title={description || annotation.quote || '论文高亮'}
-                    style={{
-                        left: `${rect.x * 100}%`,
-                        top: `${rect.y * 100}%`,
-                        width: `${rect.width * 100}%`,
-                        height: `${rect.height * 100}%`,
-                    }}
-                />
-            );
-        });
-        // 摘录与摘词已经可在侧栏集中管理；不要再把书签按钮压在正文上。
-        // 笔记与高亮仍保留文内操作入口，便于就地查看、取消或删除。
-        if (hidesInlineControls) return marks;
-        const firstRect = rects[0];
-        if (!firstRect) return marks;
-        const markerLeft = Math.min(0.965, Math.max(0.02, firstRect.x + firstRect.width));
-        const markerTop = Math.min(0.965, Math.max(0.01, firstRect.y));
-        const deleteLabel =
-            annotation.kind === 'highlight'
-                ? '取消高亮'
-                : annotation.kind === 'note'
-                  ? '删除笔记'
-                  : annotation.kind === 'vocabulary'
-                    ? '删除摘词'
-                    : '删除摘录';
-        const isActive = activeAnnotationId === annotation.id;
-        const triggerLabel =
-            annotation.kind === 'note'
-                ? `查看第 ${annotation.pageNumber} 页笔记${tags.length ? `，${tags.map((tag) => `标签 ${tag}`).join('，')}` : ''}`
-                : `打开批注操作：${annotation.quote || `第 ${annotation.pageNumber} 页批注`}`;
-        return [
-            ...marks,
-            <div
-                className='pdf-annotation-control'
-                key={`${annotation.id}-control`}
-                data-annotation-control='true'
-                data-annotation-id={annotation.id}
-                style={{ left: `${markerLeft * 100}%`, top: `${markerTop * 100}%` }}
-            >
-                <button
-                    type='button'
-                    className={`pdf-annotation-trigger pdf-annotation-trigger--${annotation.color ?? 'violet'} ${annotation.kind === 'note' ? 'is-note' : ''}`}
-                    title={description || annotation.quote || '查看论文批注'}
-                    data-tooltip={description || annotation.quote || '查看论文批注'}
-                    aria-label={triggerLabel}
-                    aria-expanded={isActive}
-                    onClick={(event) => {
-                        event.stopPropagation();
-                        setActiveAnnotationId((current) => (current === annotation.id ? '' : annotation.id));
-                        onActivate?.(annotation);
-                    }}
-                >
-                    {annotation.kind === 'note' ? (
-                        <LuStickyNote aria-hidden='true' />
-                    ) : (
-                        <PiBookmarkSimple aria-hidden='true' />
-                    )}
-                </button>
-                {isActive ? (
-                    <div
-                        className='pdf-annotation-menu'
-                        role='menu'
-                        aria-label='批注操作'
-                    >
-                        <span>{description || annotation.quote || `第 ${annotation.pageNumber} 页批注`}</span>
-                        <button
-                            type='button'
-                            role='menuitem'
-                            aria-label={`${deleteLabel}：${annotation.quote || `第 ${annotation.pageNumber} 页批注`}`}
-                            onClick={(event) => {
-                                event.stopPropagation();
-                                setActiveAnnotationId('');
-                                onDelete?.(annotation);
-                            }}
-                        >
-                            <PiTrash aria-hidden='true' />
-                            {deleteLabel}
-                        </button>
-                    </div>
-                ) : null}
-            </div>,
-        ];
+        return rects.map((rect, index) => (
+            <span
+                className={`pdf-annotation-mark pdf-annotation-mark--${annotation.color ?? 'violet'}`}
+                key={`${annotation.id}-${index}`}
+                title={description || annotation.quote || '论文高亮'}
+                style={{
+                    left: `${rect.x * 100}%`,
+                    top: `${rect.y * 100}%`,
+                    width: `${rect.width * 100}%`,
+                    height: `${rect.height * 100}%`,
+                }}
+            />
+        ));
     });
 }
 
@@ -192,6 +96,9 @@ function VirtualPdfPage({
     pageNumber,
     active,
     scale,
+    linkService,
+    optionalContentConfigPromise,
+    onLinkError,
     annotations,
     onAnnotationActivate,
     onAnnotationDelete,
@@ -203,6 +110,7 @@ function VirtualPdfPage({
     const canvasRef = useRef(null);
     const textLayerHostRef = useRef(null);
     const [aspectRatio, setAspectRatio] = useState(PDF_BASE_WIDTH / PDF_BASE_HEIGHT);
+    const [nativeLinkContext, setNativeLinkContext] = useState(null);
     const visualWidth = Math.round(PDF_BASE_WIDTH * (scale / 1.25));
 
     useEffect(() => {
@@ -242,6 +150,7 @@ function VirtualPdfPage({
                 MAX_RENDER_PIXELS
             );
             setAspectRatio(viewport.width / viewport.height);
+            setNativeLinkContext({ pdfPage: page, viewport });
 
             const canvas = canvasRef.current;
             const context = canvas.getContext('2d', { alpha: false });
@@ -298,6 +207,7 @@ function VirtualPdfPage({
         });
         return () => {
             cancelled = true;
+            setNativeLinkContext(null);
             textLayerAbort.abort();
             const pendingRender = renderTask?.promise;
             renderTask?.cancel?.();
@@ -337,6 +247,16 @@ function VirtualPdfPage({
                         ref={textLayerHostRef}
                         className='pdf-text-layer-host'
                     />
+                    {nativeLinkContext && linkService ? (
+                        <PdfNativeLinkLayer
+                            pdfPage={nativeLinkContext.pdfPage}
+                            viewport={nativeLinkContext.viewport}
+                            linkService={linkService}
+                            annotationStorage={pdfDocument.annotationStorage}
+                            optionalContentConfigPromise={optionalContentConfigPromise}
+                            onRenderError={onLinkError}
+                        />
+                    ) : null}
                     <div className='pdf-annotation-layer'>
                         <AnnotationMarks
                             annotations={annotations}
@@ -441,6 +361,7 @@ const PdfWorkspace = forwardRef(function PdfWorkspace(
         onSelectionContextMenu,
         onAnnotationActivate,
         onAnnotationDelete,
+        onLinkError,
         onProgress,
         onScaleChange,
         onScanPage,
@@ -472,9 +393,12 @@ const PdfWorkspace = forwardRef(function PdfWorkspace(
     const restoreSettleTimerRef = useRef(null);
     const restoreReleaseFrameRef = useRef(null);
     const restoreCompleteFrameRef = useRef(null);
+    const linkHistoryRef = useRef({ back: [], forward: [] });
     const scaleRef = useRef(scale);
     const currentPageRef = useRef(currentPage);
+    const onPageChangeRef = useRef(onPageChange);
     const onPageCountChangeRef = useRef(onPageCountChange);
+    const onLinkErrorRef = useRef(onLinkError);
     const onProgressRef = useRef(onProgress);
     const restoringRef = useRef(Boolean(initialProgress));
     const restoredPaperRef = useRef('');
@@ -508,7 +432,9 @@ const PdfWorkspace = forwardRef(function PdfWorkspace(
     );
     currentPageRef.current = currentPage;
     scaleRef.current = scale;
+    onPageChangeRef.current = onPageChange;
     onPageCountChangeRef.current = onPageCountChange;
+    onLinkErrorRef.current = onLinkError;
     onProgressRef.current = onProgress;
 
     const cancelPendingSelection = useCallback((clearBrowserSelection = false) => {
@@ -783,6 +709,96 @@ const PdfWorkspace = forwardRef(function PdfWorkspace(
         },
         [onPageChange, pageCount]
     );
+
+    const navigateToPdfLinkDestination = useCallback(
+        (destination, { recordHistory = true } = {}) => {
+            const safePage = Math.min(pageCount, Math.max(1, Number(destination?.pageNumber) || 1));
+            const previousPage = currentPageRef.current;
+            if (recordHistory && previousPage !== safePage) {
+                const history = linkHistoryRef.current;
+                history.back = [...history.back.slice(-99), previousPage];
+                history.forward = [];
+            }
+            currentPageRef.current = safePage;
+            onPageChangeRef.current?.(safePage);
+            requestAnimationFrame(() => {
+                const root = scrollRef.current;
+                const pageElement = pageElementsRef.current.get(safePage);
+                if (!root || !pageElement) return;
+                const rootRect = root.getBoundingClientRect();
+                const pageRect = pageElement.getBoundingClientRect();
+                const topRatio = Math.min(1, Math.max(0, Number(destination?.topRatio) || 0));
+                const leftRatio = Math.min(1, Math.max(0, Number(destination?.leftRatio) || 0));
+                const maximumTop = Math.max(0, root.scrollHeight - root.clientHeight);
+                const maximumLeft = Math.max(0, root.scrollWidth - root.clientWidth);
+                const targetTop = root.scrollTop + (pageRect.top - rootRect.top) + pageRect.height * topRatio - 14;
+                const targetLeft = root.scrollLeft + (pageRect.left - rootRect.left) + pageRect.width * leftRatio - 14;
+                root.scrollTo({
+                    top: Math.min(maximumTop, Math.max(0, targetTop)),
+                    left: Math.min(maximumLeft, Math.max(0, targetLeft)),
+                    behavior: 'smooth',
+                });
+            });
+            return safePage;
+        },
+        [pageCount]
+    );
+
+    const handlePdfNamedAction = useCallback(
+        (action) => {
+            const current = currentPageRef.current;
+            const history = linkHistoryRef.current;
+            if (action === 'GoBack') {
+                const target = history.back.pop();
+                if (!target) return;
+                history.forward = [current, ...history.forward].slice(0, 100);
+                navigateToPdfLinkDestination({ pageNumber: target }, { recordHistory: false });
+                return;
+            }
+            if (action === 'GoForward') {
+                const target = history.forward.shift();
+                if (!target) return;
+                history.back = [...history.back.slice(-99), current];
+                navigateToPdfLinkDestination({ pageNumber: target }, { recordHistory: false });
+                return;
+            }
+            const target =
+                action === 'FirstPage'
+                    ? 1
+                    : action === 'LastPage'
+                      ? pageCount
+                      : action === 'NextPage'
+                        ? current + 1
+                        : action === 'PrevPage'
+                          ? current - 1
+                          : current;
+            navigateToPdfLinkDestination({ pageNumber: target });
+        },
+        [navigateToPdfLinkDestination, pageCount]
+    );
+
+    const optionalContentConfigPromise = useMemo(
+        () => pdfDocument?.getOptionalContentConfig?.({ intent: 'display' }) ?? null,
+        [pdfDocument]
+    );
+    const pdfLinkService = useMemo(() => {
+        if (!pdfDocument) return null;
+        return createPdfLinkService({
+            pdfDocument,
+            onDestination: navigateToPdfLinkDestination,
+            onExternalUrl: openPdfExternalUrl,
+            onNamedAction: handlePdfNamedAction,
+            onError: (reason) => {
+                console.warn('PDF 链接处理失败', reason);
+                onLinkErrorRef.current?.(reason);
+            },
+        });
+    }, [handlePdfNamedAction, navigateToPdfLinkDestination, pdfDocument]);
+
+    useEffect(() => {
+        linkHistoryRef.current = { back: [], forward: [] };
+        return () => pdfLinkService?.cancelPendingDestination?.();
+    }, [paperKey, pdfLinkService]);
 
     const search = useCallback(
         async (query) => {
@@ -1545,6 +1561,12 @@ const PdfWorkspace = forwardRef(function PdfWorkspace(
                             pageNumber={pageNumber}
                             active={renderPages.has(pageNumber)}
                             scale={scale}
+                            linkService={pdfLinkService}
+                            optionalContentConfigPromise={optionalContentConfigPromise}
+                            onLinkError={(reason) => {
+                                console.warn(`PDF 第 ${pageNumber} 页链接层渲染失败`, reason);
+                                onLinkErrorRef.current?.(reason);
+                            }}
                             annotations={annotationsByPage.get(pageNumber) ?? []}
                             onAnnotationActivate={onAnnotationActivate}
                             onAnnotationDelete={onAnnotationDelete}

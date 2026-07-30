@@ -47,18 +47,21 @@ function setupNativeSelectionHarness(paperId) {
     return { onSelection, workspace, paragraph, range, browserSelection, frames };
 }
 
-describe('PDF 文内笔记标记', () => {
+describe('PDF 文内批注标记', () => {
     it.each([
-        ['excerpt', '摘录'],
-        ['vocabulary', '摘词'],
-    ])('%s 只保留正文高亮，不渲染遮挡文字的书签按钮', (kind, tag) => {
+        ['excerpt', '摘录', 'amber'],
+        ['vocabulary', '摘词', 'blue'],
+        ['note', '笔记', 'green'],
+        ['highlight', '高亮', 'rose'],
+    ])('%s 只保留正文高亮矩形，不渲染按钮、菜单或标签数字', (kind, tag, color) => {
         const annotation = {
             id: `${kind}-1`,
             paperId: 'demo-memory',
             pageNumber: 2,
             kind,
-            color: kind === 'excerpt' ? 'amber' : 'blue',
+            color,
             quote: 'selected sentence',
+            note: kind === 'note' ? '这是一条关键笔记' : '',
             tags: [tag],
             rects: [{ x: 0.2, y: 0.3, width: 0.24, height: 0.03 }],
         };
@@ -74,93 +77,12 @@ describe('PDF 文内笔记标记', () => {
 
         const mark = container.querySelector('.pdf-annotation-mark');
         expect(mark).not.toBeNull();
+        expect(mark.classList.contains(`pdf-annotation-mark--${color}`)).toBe(true);
         expect(mark.classList.contains('has-tags')).toBe(false);
         expect(mark.getAttribute('data-tag-count')).toBeNull();
         expect(container.querySelector(`[data-annotation-id="${annotation.id}"]`)).toBeNull();
         expect(screen.queryByRole('button', { name: /打开批注操作/u })).toBeNull();
-    });
-
-    it('在首个批注矩形旁显示可点击的批注标签，并把删除操作收进标签菜单', () => {
-        const annotation = {
-            id: 'note-1',
-            paperId: 'demo-memory',
-            pageNumber: 2,
-            kind: 'note',
-            color: 'green',
-            quote: 'selected sentence',
-            note: '这是一条关键笔记',
-            tags: ['方法学'],
-            rects: [{ x: 0.2, y: 0.3, width: 0.24, height: 0.03 }],
-        };
-        const onAnnotationActivate = vi.fn();
-        render(
-            <PdfWorkspace
-                source=''
-                document={{ paper: { id: 'demo-memory' }, pageCount: 2 }}
-                currentPage={2}
-                scale={1.25}
-                annotations={[annotation]}
-                onAnnotationActivate={onAnnotationActivate}
-            />
-        );
-
-        const marker = screen.getByRole('button', { name: '查看第 2 页笔记，标签 方法学' });
-        expect(marker.querySelector('svg')).not.toBeNull();
-        expect(marker.getAttribute('data-tooltip')).toContain('这是一条关键笔记');
-        expect(screen.queryByRole('menuitem', { name: /删除笔记/u })).toBeNull();
-        fireEvent.click(marker);
-        expect(onAnnotationActivate).toHaveBeenCalledWith(annotation);
-        expect(screen.getByRole('menuitem', { name: '删除笔记：selected sentence' })).toBeTruthy();
-    });
-
-    it('纯高亮初始不显示垃圾桶，点开批注标签后才可取消', () => {
-        const onAnnotationDelete = vi.fn();
-        const annotation = {
-            id: 'highlight-1',
-            pageNumber: 2,
-            kind: 'highlight',
-            color: 'rose',
-            quote: 'selected sentence',
-            rects: [{ x: 0.2, y: 0.3, width: 0.24, height: 0.03 }],
-        };
-        render(
-            <PdfWorkspace
-                source=''
-                document={{ paper: { id: 'demo-memory' }, pageCount: 2 }}
-                currentPage={2}
-                scale={1.25}
-                annotations={[annotation]}
-                onAnnotationDelete={onAnnotationDelete}
-            />
-        );
-
-        expect(screen.queryByRole('menuitem', { name: /取消高亮/u })).toBeNull();
-        fireEvent.click(screen.getByRole('button', { name: '打开批注操作：selected sentence' }));
-        fireEvent.click(screen.getByRole('menuitem', { name: '取消高亮：selected sentence' }));
-        expect(onAnnotationDelete).toHaveBeenCalledWith(annotation);
-    });
-
-    it('点到批注菜单外会收起删除操作', () => {
-        const annotation = {
-            id: 'highlight-outside',
-            pageNumber: 2,
-            kind: 'highlight',
-            quote: 'outside close',
-            rects: [{ x: 0.2, y: 0.3, width: 0.24, height: 0.03 }],
-        };
-        render(
-            <PdfWorkspace
-                source=''
-                document={{ paper: { id: 'demo-memory' }, pageCount: 2 }}
-                currentPage={2}
-                scale={1.25}
-                annotations={[annotation]}
-            />
-        );
-
-        fireEvent.click(screen.getByRole('button', { name: '打开批注操作：outside close' }));
-        expect(screen.getByRole('menu', { name: '批注操作' })).toBeTruthy();
-        fireEvent.pointerDown(document.body);
+        expect(screen.queryByRole('button', { name: /查看第/u })).toBeNull();
         expect(screen.queryByRole('menu', { name: '批注操作' })).toBeNull();
     });
 

@@ -137,11 +137,13 @@ export function useResearchSidebarResize() {
 
     const reset = useCallback(() => setWidth(clampResearchSidebarWidth(DEFAULT_RESEARCH_SIDEBAR_WIDTH)), []);
     const toggleCollapsed = useCallback(() => setCollapsed((current) => !current), []);
+    const expand = useCallback(() => setCollapsed(false), []);
 
     return {
         width,
         collapsed,
         toggleCollapsed,
+        expand,
         rootStyle: { '--app-context-sidebar-width': `${width}px` },
         separatorProps: {
             role: 'separator',

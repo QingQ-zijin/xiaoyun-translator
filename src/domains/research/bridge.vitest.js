@@ -48,6 +48,7 @@ import {
     listPendingPaperInsights,
     listProjects,
     movePapersToTrash,
+    openPdfExternalUrl,
     restorePapers,
     setPaperProjects,
     subscribeToDocumentDrops,
@@ -77,6 +78,32 @@ beforeEach(() => {
     mocks.onDragDropEvent.mockImplementation((handler) => {
         mocks.dragDropHandler = handler;
         return Promise.resolve(() => {});
+    });
+});
+
+describe('PDF 外部链接 bridge', () => {
+    it('桌面端只把规范化后的安全 URL 交给 Rust', async () => {
+        mocks.invoke.mockResolvedValue(undefined);
+
+        await expect(openPdfExternalUrl('  https://example.com/paper?q=1  ')).resolves.toBe(
+            'https://example.com/paper?q=1'
+        );
+        expect(mocks.invoke).toHaveBeenCalledWith('research_open_external_url', {
+            url: 'https://example.com/paper?q=1',
+        });
+    });
+
+    it('演示环境使用新窗口打开，并在调用前拒绝危险协议', async () => {
+        delete window.__TAURI_INTERNALS__;
+        const open = vi.fn();
+        vi.stubGlobal('open', open);
+
+        await expect(openPdfExternalUrl('mailto:author@example.com')).resolves.toBe('mailto:author@example.com');
+        expect(open).toHaveBeenCalledWith('mailto:author@example.com', '_blank', 'noopener,noreferrer');
+        await expect(openPdfExternalUrl('javascript:alert(1)')).rejects.toThrow(
+            'PDF 外部链接只允许使用 http、https 或 mailto'
+        );
+        expect(open).toHaveBeenCalledOnce();
     });
 });
 

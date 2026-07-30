@@ -1,5 +1,6 @@
 let runtimePromise;
 let textLayerBuilderPromise;
+let annotationLayerBuilderPromise;
 
 export const PDFJS_WASM_URL = '/pdfjs-wasm/';
 export const PDFJS_CANVAS_MAX_AREA_IN_BYTES = 16_000_000 * 4;
@@ -35,4 +36,13 @@ export function loadPdfTextLayerBuilder() {
         );
     }
     return textLayerBuilderPromise;
+}
+
+export function loadPdfAnnotationLayerBuilder() {
+    if (!annotationLayerBuilderPromise) {
+        annotationLayerBuilderPromise = import('pdfjs-dist/web/pdf_viewer.mjs').then(
+            ({ AnnotationLayerBuilder }) => AnnotationLayerBuilder
+        );
+    }
+    return annotationLayerBuilderPromise;
 }
