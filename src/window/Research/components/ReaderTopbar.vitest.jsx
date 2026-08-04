@@ -141,4 +141,29 @@ describe('论文阅读器翻译模型状态', () => {
         );
         expect(screen.getByRole('button', { name: '显示阅读侧栏' }).getAttribute('aria-pressed')).toBe('false');
     });
+
+    it('多位页码只在回车或失焦后提交一次，不会输入一位就跳一页', () => {
+        const onPageChange = vi.fn();
+        renderTopbar({ ready: true, message: '已就绪' }, { currentPage: 1, pageCount: 120, onPageChange });
+        const input = screen.getByRole('textbox', { name: '当前页码' });
+
+        fireEvent.focus(input);
+        fireEvent.change(input, { target: { value: '2' } });
+        fireEvent.change(input, { target: { value: '20' } });
+        expect(onPageChange).not.toHaveBeenCalled();
+
+        fireEvent.keyDown(input, { key: 'Enter' });
+        expect(onPageChange).toHaveBeenCalledOnce();
+        expect(onPageChange).toHaveBeenCalledWith(20);
+    });
+
+    it('顶部文字工具可以切换到任意位置插入模式', () => {
+        const onInteractionModeChange = vi.fn();
+        renderTopbar({ ready: true, message: '已就绪' }, { interactionMode: 'select', onInteractionModeChange });
+
+        const textTool = screen.getByRole('button', { name: '插入文字工具' });
+        expect(textTool.getAttribute('aria-pressed')).toBe('false');
+        fireEvent.click(textTool);
+        expect(onInteractionModeChange).toHaveBeenCalledWith('text');
+    });
 });

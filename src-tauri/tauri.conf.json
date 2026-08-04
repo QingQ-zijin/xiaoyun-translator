@@ -33,7 +33,7 @@
     },
     "productName": "小允翻译",
     "mainBinaryName": "小允翻译",
-    "version": "4.5.7",
+    "version": "4.5.8",
     "identifier": "com.pot-app.desktop",
     "plugins": {
         "updater": {

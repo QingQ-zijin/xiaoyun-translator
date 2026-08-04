@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { PiCheck, PiTag, PiX } from 'react-icons/pi';
+import { PiCheck, PiTag, PiTrash, PiX } from 'react-icons/pi';
 
 import { normalizeAnnotationTags } from '../../../domains/research/model';
 import { computeFloatingPosition } from '../floatingPosition';
@@ -13,6 +13,7 @@ export default function AnnotationEditorPopover({
     boundaryRect,
     tagSuggestions = [],
     onSave,
+    onDelete,
     onClose,
 }) {
     const panelRef = useRef(null);
@@ -28,6 +29,14 @@ export default function AnnotationEditorPopover({
         [tagSuggestions]
     );
     const isEditing = Boolean(selection?.id);
+    const isTextAnnotation = selection?.kind === 'text';
+    const dialogLabel = isTextAnnotation
+        ? isEditing
+            ? '编辑插入文字'
+            : '插入文字'
+        : isEditing
+          ? '编辑论文笔记'
+          : '添加论文笔记';
 
     useEffect(() => {
         onCloseRef.current = onClose;
@@ -88,14 +97,31 @@ export default function AnnotationEditorPopover({
         setSaving(true);
         setError('');
         try {
+            const normalizedNote = note.trim();
+            if (isTextAnnotation && !normalizedNote) throw new Error('请输入要插入的文字');
             await onSave?.({
                 ...selection,
-                kind: 'note',
-                note: note.trim(),
+                kind: isTextAnnotation ? 'text' : normalizedNote ? 'note' : selection.kind || 'highlight',
+                quote: isTextAnnotation ? normalizedNote : selection.quote,
+                note: normalizedNote,
                 color,
                 tags: normalizeAnnotationTags(tagText.split(/[,，]/u)),
             });
             onClose?.();
+        } catch (reason) {
+            setError(String(reason?.message ?? reason));
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const removeAnnotation = async () => {
+        if (!selection?.id || !onDelete) return;
+        setSaving(true);
+        setError('');
+        try {
+            const removed = await onDelete(selection);
+            if (removed !== false) onClose?.();
         } catch (reason) {
             setError(String(reason?.message ?? reason));
         } finally {
@@ -124,11 +150,19 @@ export default function AnnotationEditorPopover({
             }
             onSubmit={submit}
             role='dialog'
-            aria-label={isEditing ? '编辑论文笔记' : '添加论文笔记'}
+            aria-label={dialogLabel}
         >
             <header>
                 <div>
-                    <strong>{isEditing ? '编辑笔记与标签' : '添加笔记与标签'}</strong>
+                    <strong>
+                        {isTextAnnotation
+                            ? isEditing
+                                ? '编辑插入文字'
+                                : '在此处插入文字'
+                            : isEditing
+                              ? '编辑笔记与高亮'
+                              : '添加笔记与标签'}
+                    </strong>
                     <span>第 {selection.pageNumber} 页</span>
                 </div>
                 <button
@@ -139,14 +173,14 @@ export default function AnnotationEditorPopover({
                     <PiX aria-hidden='true' />
                 </button>
             </header>
-            <blockquote>{selection.quote}</blockquote>
+            {selection.quote && !isTextAnnotation ? <blockquote>{selection.quote}</blockquote> : null}
             <label>
-                <span>笔记</span>
+                <span>{isTextAnnotation ? '文字内容' : '笔记'}</span>
                 <textarea
                     autoFocus
                     value={note}
                     onChange={(event) => setNote(event.target.value)}
-                    placeholder='记录你的理解、疑问或实验想法…'
+                    placeholder={isTextAnnotation ? '输入要放在 PDF 页面上的文字…' : '记录你的理解、疑问或实验想法…'}
                 />
             </label>
             <label>
@@ -177,6 +211,17 @@ export default function AnnotationEditorPopover({
                 </div>
             ) : null}
             <div className='annotation-editor-popover__footer'>
+                {isEditing && onDelete ? (
+                    <button
+                        className='annotation-editor-popover__delete'
+                        type='button'
+                        disabled={saving}
+                        onClick={removeAnnotation}
+                    >
+                        <PiTrash aria-hidden='true' />
+                        {selection.kind === 'highlight' ? '取消高亮' : '删除'}
+                    </button>
+                ) : null}
                 <fieldset aria-label='高亮颜色'>
                     <AnnotationColorPicker
                         value={color}

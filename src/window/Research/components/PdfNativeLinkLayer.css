@@ -1,7 +1,7 @@
 .pdf-native-link-layer {
     position: absolute;
     inset: 0;
-    z-index: 2;
+    z-index: 3;
     overflow: hidden;
     pointer-events: none;
 }
@@ -19,9 +19,13 @@
     position: absolute;
     box-sizing: border-box;
     text-align: initial;
-    pointer-events: auto;
+    pointer-events: none;
     transform-origin: 0 0;
     user-select: none;
+}
+
+.pdf-native-link-layer > .annotationLayer section:is(.linkAnnotation, .buttonWidgetAnnotation.pushButton) {
+    pointer-events: auto;
 }
 
 .pdf-native-link-layer > .annotationLayer :is(.linkAnnotation, .buttonWidgetAnnotation.pushButton) > a {

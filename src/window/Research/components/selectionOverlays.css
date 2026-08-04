@@ -202,6 +202,31 @@
     cursor: pointer;
 }
 
+.annotation-editor-popover__delete {
+    min-height: 34px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0 10px;
+    border: 1px solid #efc8cc;
+    border-radius: 9px;
+    background: #fff8f8;
+    color: #b1444d;
+    font-weight: 620;
+    cursor: pointer;
+}
+
+.annotation-editor-popover__delete:hover:not(:disabled) {
+    border-color: #de9da4;
+    background: #fff0f1;
+}
+
+.annotation-editor-popover__delete:disabled,
+.annotation-editor-popover__save:disabled {
+    cursor: wait;
+    opacity: 0.55;
+}
+
 .selection-translation-popover {
     width: min(430px, calc(100vw - 24px));
     max-height: min(620px, 76vh);

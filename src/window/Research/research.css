@@ -2555,7 +2555,7 @@
     touch-action: pan-x pan-y;
     padding: 0 8px 54px;
     background: var(--research-canvas);
-    scroll-behavior: smooth;
+    scroll-behavior: auto;
 }
 
 .pdf-workspace:focus {
@@ -2569,6 +2569,15 @@
 .pdf-workspace--pan,
 .pdf-workspace.is-space-pan {
     cursor: grab;
+}
+
+.pdf-workspace--text {
+    cursor: crosshair;
+}
+
+.pdf-workspace--text .textLayer :is(span, br) {
+    cursor: crosshair;
+    user-select: none;
 }
 
 .pdf-workspace--pan .textLayer :is(span, br),
@@ -2825,7 +2834,7 @@
 }
 
 .pdf-annotation-layer {
-    z-index: 3;
+    z-index: 4;
     pointer-events: none;
 }
 
@@ -2855,6 +2864,42 @@
     background: rgba(223, 92, 127, 0.24);
 }
 
+.pdf-text-annotation {
+    position: absolute;
+    box-sizing: border-box;
+    overflow: hidden;
+    padding: 5px 7px;
+    border: 1px solid rgba(65, 59, 96, 0.2);
+    border-radius: 5px;
+    background: rgba(248, 246, 255, 0.94);
+    color: #302b49;
+    font-family: Inter, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    font-size: 11px;
+    font-weight: 560;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    box-shadow: 0 2px 8px rgba(41, 36, 66, 0.12);
+    mix-blend-mode: normal;
+    user-select: none;
+}
+
+.pdf-text-annotation--amber {
+    background: rgba(255, 247, 216, 0.95);
+}
+
+.pdf-text-annotation--blue {
+    background: rgba(232, 240, 255, 0.95);
+}
+
+.pdf-text-annotation--green {
+    background: rgba(231, 248, 237, 0.95);
+}
+
+.pdf-text-annotation--rose {
+    background: rgba(255, 234, 240, 0.95);
+}
+
 .pdf-page__number {
     position: absolute;
     z-index: 4;
@@ -2863,6 +2908,7 @@
     color: #282a30;
     font-family: Georgia, 'Times New Roman', serif;
     font-size: 14px;
+    pointer-events: none;
     transform: translateX(-50%);
 }
 

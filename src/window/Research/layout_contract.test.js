@@ -61,6 +61,25 @@ test('正文批注层只渲染高亮矩形，不包含遮挡内容的按钮、�
     assert.doesNotMatch(css, /\.pdf-annotation-menu(?:[\s>{])/u);
 });
 
+test('PDF native links stay clickable without turning every annotation widget into a hit target', () => {
+    const researchCss = readProjectFile('src/window/Research/research.css');
+    const linkCss = readProjectFile('src/window/Research/components/PdfNativeLinkLayer.css');
+
+    assert.match(readRule(linkCss, '.pdf-native-link-layer'), /z-index:\s*3/u);
+    assert.match(readRule(linkCss, '.pdf-native-link-layer'), /pointer-events:\s*none/u);
+    assert.match(readRule(linkCss, '.pdf-native-link-layer > .annotationLayer section'), /pointer-events:\s*none/u);
+    assert.match(
+        readRule(
+            linkCss,
+            '.pdf-native-link-layer > .annotationLayer section:is(.linkAnnotation, .buttonWidgetAnnotation.pushButton)'
+        ),
+        /pointer-events:\s*auto/u
+    );
+    assert.match(researchCss, /\.pdf-annotation-layer\s*\{[^}]*z-index:\s*4/u);
+    assert.match(researchCss, /\.pdf-annotation-layer\s*\{[^}]*pointer-events:\s*none/u);
+    assert.match(readRule(researchCss, '.pdf-page__number'), /pointer-events:\s*none/u);
+});
+
 test('摘录标签与列表在最小侧栏宽度下仍保持横排且正文不被操作列挤压', () => {
     const css = readProjectFile('src/window/Research/research.css');
     const tabButtonRule = readRule(css, '.reader-sidebar-tabs button');

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+    annotationKind,
     classifySelection,
     buildAiEvidence,
     clampReadingProgress,
@@ -229,16 +230,18 @@ describe('论文阅读纯函数', () => {
                 { note: '', tags: ['机制', 'METHOD'] },
                 { kind: 'vocabulary', tags: ['method', null] },
                 { kind: 'excerpt', tags: ['摘录'] },
+                { kind: 'text', note: '页内文字', tags: ['method'] },
             ])
         ).toEqual({
-            total: 4,
+            total: 5,
             notes: 1,
             vocabulary: 1,
             excerpts: 1,
             highlights: 1,
+            texts: 1,
             tags: [
+                { name: 'METHOD', count: 3 },
                 { name: '机制', count: 2 },
-                { name: 'METHOD', count: 2 },
                 { name: '代谢', count: 1 },
                 { name: '摘录', count: 1 },
             ],
@@ -249,7 +252,9 @@ describe('论文阅读纯函数', () => {
             vocabulary: 0,
             excerpts: 0,
             highlights: 0,
+            texts: 0,
             tags: [],
         });
+        expect(annotationKind({ kind: 'text', note: '页内文字' })).toBe('text');
     });
 });

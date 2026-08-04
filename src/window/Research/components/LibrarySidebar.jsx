@@ -23,6 +23,7 @@ const ANNOTATION_KIND_LABELS = {
     excerpt: '摘抄',
     note: '笔记',
     highlight: '高亮',
+    text: '文字',
 };
 
 const ANNOTATION_KIND_FILTERS = [
@@ -30,6 +31,7 @@ const ANNOTATION_KIND_FILTERS = [
     { id: 'excerpt', countKey: 'excerpts', label: '摘抄' },
     { id: 'note', countKey: 'notes', label: '笔记' },
     { id: 'highlight', countKey: 'highlights', label: '高亮' },
+    { id: 'text', countKey: 'texts', label: '文字' },
 ];
 
 const READER_TAB_IDS = ['insights', 'outline', 'annotations', 'relations'];
@@ -61,14 +63,15 @@ function AnnotationRow({ annotation, onJump, onOpen, onDelete }) {
     const kind = annotationKind(annotation);
     const lexicon = annotation.lexicon ?? annotation.payload?.lexicon ?? null;
     const phonetics = (lexicon?.phonetics ?? []).filter((item) => item?.ipa);
-    const deleteLabel = kind === 'highlight' ? '取消高亮' : kind === 'note' ? '删除笔记' : '删除摘录';
+    const deleteLabel =
+        kind === 'highlight' ? '取消高亮' : kind === 'note' ? '删除笔记' : kind === 'text' ? '删除文字' : '删除摘录';
     return (
         <div className='recent-annotation'>
             <button
                 className='recent-annotation__open'
                 type='button'
                 onClick={() => {
-                    if (kind === 'note' && onOpen) onOpen(annotation);
+                    if (['note', 'highlight', 'text'].includes(kind) && onOpen) onOpen(annotation);
                     else onJump?.(annotation);
                 }}
             >

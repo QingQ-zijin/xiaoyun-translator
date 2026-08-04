@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
     PiArrowsOut,
     PiCaretLeft,
@@ -9,6 +9,7 @@ import {
     PiMagnifyingGlass,
     PiSidebarSimple,
     PiSpeakerHigh,
+    PiTextT,
 } from 'react-icons/pi';
 
 import { formatShortcutForPlatform, getPlatformPresentation } from '../../../utils/platform';
@@ -85,12 +86,19 @@ export default function ReaderTopbar({
 }) {
     const [searchOpen, setSearchOpen] = useState(false);
     const [searchValue, setSearchValue] = useState('');
+    const [pageDraft, setPageDraft] = useState(() => String(currentPage || 1));
+    const [pageEditing, setPageEditing] = useState(false);
+    const pageCommitOnEnterRef = useRef(false);
     const modelStatus = getTranslationStatusPresentation(translationStatus);
     const paperGroups = groupPapersByProject(papers, projects);
     const currentPaperId = String(activePaperId || paper?.id || '');
     const currentPaperIsMissing = !paperGroups.some((group) =>
         group.papers.some((item) => String(item.id) === currentPaperId)
     );
+
+    useEffect(() => {
+        if (!pageEditing) setPageDraft(String(currentPage || 1));
+    }, [currentPage, pageEditing]);
     if (paper?.archivedAt && currentPaperId && currentPaperIsMissing) {
         paperGroups.unshift({
             id: '__archived_current__',
@@ -102,6 +110,16 @@ export default function ReaderTopbar({
     const submitSearch = (event) => {
         event.preventDefault();
         onSearch?.(searchValue);
+    };
+
+    const commitPageDraft = () => {
+        const parsed = Number.parseInt(pageDraft, 10);
+        const nextPage = Number.isFinite(parsed)
+            ? Math.min(Math.max(1, Number(pageCount) || 1), Math.max(1, parsed))
+            : Math.min(Math.max(1, Number(pageCount) || 1), Math.max(1, Number(currentPage) || 1));
+        setPageEditing(false);
+        setPageDraft(String(nextPage));
+        if (nextPage !== currentPage) onPageChange?.(nextPage);
     };
 
     const toggleFullscreen = async () => {
@@ -167,8 +185,29 @@ export default function ReaderTopbar({
                     <input
                         aria-label='当前页码'
                         inputMode='numeric'
-                        value={currentPage}
-                        onChange={(event) => onPageChange(Number(event.target.value))}
+                        value={pageDraft}
+                        onFocus={(event) => {
+                            setPageEditing(true);
+                            event.currentTarget.select();
+                        }}
+                        onChange={(event) => setPageDraft(event.target.value.replace(/\D/gu, ''))}
+                        onBlur={() => {
+                            if (pageCommitOnEnterRef.current) {
+                                pageCommitOnEnterRef.current = false;
+                                return;
+                            }
+                            commitPageDraft();
+                        }}
+                        onKeyDown={(event) => {
+                            if (event.key !== 'Enter') return;
+                            event.preventDefault();
+                            pageCommitOnEnterRef.current = true;
+                            commitPageDraft();
+                            event.currentTarget.blur();
+                            queueMicrotask(() => {
+                                pageCommitOnEnterRef.current = false;
+                            });
+                        }}
                     />
                 </label>
                 <span className='reader-toolbar__page-count'>/ {pageCount || 1}</span>
@@ -224,6 +263,15 @@ export default function ReaderTopbar({
                         onClick={() => onInteractionModeChange?.('pan')}
                     >
                         <PiHand />
+                    </button>
+                    <button
+                        type='button'
+                        aria-label='插入文字工具'
+                        aria-pressed={interactionMode === 'text'}
+                        title='在 PDF 任意位置插入文字（T）'
+                        onClick={() => onInteractionModeChange?.('text')}
+                    >
+                        <PiTextT />
                     </button>
                 </div>
                 <output

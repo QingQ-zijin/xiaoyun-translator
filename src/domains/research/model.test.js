@@ -130,6 +130,7 @@ test('批注标签去重、限制数量，并汇总高亮、笔记和标签记�
             vocabulary: 0,
             excerpts: 0,
             highlights: 2,
+            texts: 0,
             tags: [
                 { name: '方法', count: 2 },
                 { name: '结果', count: 2 },

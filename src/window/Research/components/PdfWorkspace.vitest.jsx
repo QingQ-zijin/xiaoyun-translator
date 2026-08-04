@@ -86,6 +86,80 @@ describe('PDF 文内批注标记', () => {
         expect(screen.queryByRole('menu', { name: '批注操作' })).toBeNull();
     });
 
+    it('点击正文高亮矩形会立即打开关联批注，同时仍不恢复悬浮小标签', () => {
+        const onAnnotationActivate = vi.fn();
+        const annotation = {
+            id: 'note-1',
+            paperId: 'demo-memory',
+            pageNumber: 2,
+            kind: 'note',
+            color: 'green',
+            quote: 'selected sentence',
+            note: '立即显示这条笔记',
+            rects: [{ x: 0.2, y: 0.3, width: 0.3, height: 0.08 }],
+        };
+        const { container } = render(
+            <PdfWorkspace
+                source=''
+                document={{ paper: { id: 'demo-memory' }, pageCount: 2 }}
+                currentPage={2}
+                scale={1.25}
+                annotations={[annotation]}
+                onAnnotationActivate={onAnnotationActivate}
+            />
+        );
+        const page = container.querySelector('.demo-pdf-page');
+        const target = container.querySelector('[data-pdf-selection-layer]');
+        page.getBoundingClientRect = () => ({ left: 100, top: 50, right: 750, bottom: 842, width: 650, height: 792 });
+
+        fireEvent.click(target, { button: 0, clientX: 300, clientY: 320 });
+
+        expect(onAnnotationActivate).toHaveBeenCalledWith(
+            annotation,
+            expect.objectContaining({ anchorRect: expect.objectContaining({ left: 300, top: 320 }) })
+        );
+        expect(container.querySelector('.pdf-annotation-control')).toBeNull();
+    });
+
+    it('文字工具点击任意页内位置会创建归一化文字草稿，并在保存后显示文字', () => {
+        const onTextInsert = vi.fn();
+        const textAnnotation = {
+            id: 'text-1',
+            paperId: 'demo-memory',
+            pageNumber: 2,
+            kind: 'text',
+            color: 'amber',
+            quote: '页内补充说明',
+            note: '页内补充说明',
+            rects: [{ x: 0.4, y: 0.42, width: 0.3, height: 0.08 }],
+        };
+        const { container } = render(
+            <PdfWorkspace
+                source=''
+                document={{ paper: { id: 'demo-memory' }, pageCount: 2 }}
+                currentPage={2}
+                scale={1.25}
+                interactionMode='text'
+                annotations={[textAnnotation]}
+                onTextInsert={onTextInsert}
+            />
+        );
+        const page = container.querySelector('.demo-pdf-page');
+        const target = container.querySelector('[data-pdf-selection-layer]');
+        page.getBoundingClientRect = () => ({ left: 100, top: 50, right: 750, bottom: 842, width: 650, height: 792 });
+
+        expect(screen.getByText('页内补充说明').classList.contains('pdf-text-annotation')).toBe(true);
+        fireEvent.click(target, { button: 0, clientX: 180, clientY: 180 });
+
+        expect(onTextInsert).toHaveBeenCalledWith(
+            expect.objectContaining({ paperId: 'demo-memory', pageNumber: 2, kind: 'text' }),
+            expect.objectContaining({ anchorRect: expect.objectContaining({ left: 180, top: 180 }) })
+        );
+        const rect = onTextInsert.mock.calls[0][0].rects[0];
+        expect(rect.x).toBeGreaterThanOrEqual(0);
+        expect(rect.x + rect.width).toBeLessThanOrEqual(1);
+    });
+
     it('摘录定位使用页内矩形坐标，而不是只跳到页首', () => {
         const workspaceRef = { current: null };
         const onPageChange = vi.fn();
@@ -124,7 +198,7 @@ describe('PDF 文内批注标记', () => {
         workspaceRef.current.goToAnnotation({ pageNumber: 1, rects: [{ y: 0.5 }] });
 
         expect(onPageChange).toHaveBeenCalledWith(1);
-        expect(workspace.scrollTo).toHaveBeenCalledWith({ top: 780, behavior: 'smooth' });
+        expect(workspace.scrollTo).toHaveBeenCalledWith({ top: 780, left: 0, behavior: 'auto' });
     });
 
     it('直接阅读 Markdown 文档并复用划词与批注页坐标', async () => {

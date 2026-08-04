@@ -12,12 +12,14 @@ import { PiFileMagnifyingGlass, PiSpinnerGap } from 'react-icons/pi';
 
 import { DEMO_PAGE } from '../../../domains/research/demoData';
 import {
+    annotationKind,
     clampReadingProgress,
     createSelectionAnchor,
     getVirtualPageWindow,
     shouldTranslateSelection,
 } from '../../../domains/research/model';
 import { openPdfExternalUrl } from '../../../domains/research/bridge';
+import { createPdfTextAnnotation, findAnnotationAtPdfPoint } from '../annotationInteractions';
 import { mergeClientRects } from '../floatingPosition';
 import {
     computeAnchoredScroll,
@@ -75,6 +77,25 @@ function AnnotationMarks({ annotations }) {
         const tags = Array.isArray(annotation.tags) ? annotation.tags.filter(Boolean) : [];
         const description = [tags.map((tag) => `#${tag}`).join(' '), annotation.note].filter(Boolean).join(' · ');
         const rects = annotation.rects ?? [];
+        if (annotationKind(annotation) === 'text') {
+            const rect = rects[0];
+            if (!rect || !String(annotation.note ?? '').trim()) return [];
+            return [
+                <span
+                    className={`pdf-text-annotation pdf-text-annotation--${annotation.color ?? 'violet'}`}
+                    key={annotation.id}
+                    title='点击编辑插入文字'
+                    style={{
+                        left: `${rect.x * 100}%`,
+                        top: `${rect.y * 100}%`,
+                        width: `${rect.width * 100}%`,
+                        minHeight: `${rect.height * 100}%`,
+                    }}
+                >
+                    {annotation.note}
+                </span>,
+            ];
+        }
         return rects.map((rect, index) => (
             <span
                 className={`pdf-annotation-mark pdf-annotation-mark--${annotation.color ?? 'violet'}`}
@@ -359,6 +380,7 @@ const PdfWorkspace = forwardRef(function PdfWorkspace(
         onReferencePages,
         onSelection,
         onSelectionContextMenu,
+        onTextInsert,
         onAnnotationActivate,
         onAnnotationDelete,
         onLinkError,
@@ -394,6 +416,8 @@ const PdfWorkspace = forwardRef(function PdfWorkspace(
     const restoreReleaseFrameRef = useRef(null);
     const restoreCompleteFrameRef = useRef(null);
     const linkHistoryRef = useRef({ back: [], forward: [] });
+    const programmaticNavigationRef = useRef(null);
+    const programmaticNavigationTimerRef = useRef(null);
     const scaleRef = useRef(scale);
     const currentPageRef = useRef(currentPage);
     const onPageChangeRef = useRef(onPageChange);
@@ -670,14 +694,66 @@ const PdfWorkspace = forwardRef(function PdfWorkspace(
         }
     }, []);
 
+    const clearProgrammaticNavigation = useCallback(() => {
+        clearTimeout(programmaticNavigationTimerRef.current);
+        programmaticNavigationTimerRef.current = null;
+        programmaticNavigationRef.current = null;
+    }, []);
+
+    const beginProgrammaticNavigation = useCallback(
+        (pageNumber) => {
+            clearProgrammaticNavigation();
+            programmaticNavigationRef.current = pageNumber;
+            programmaticNavigationTimerRef.current = setTimeout(clearProgrammaticNavigation, 320);
+        },
+        [clearProgrammaticNavigation]
+    );
+
+    const scrollToPagePosition = useCallback(
+        (pageNumber, { topRatio = 0, leftRatio = 0, topOffset = 14 } = {}) => {
+            const root = scrollRef.current;
+            const pageElement = pageElementsRef.current.get(pageNumber);
+            if (!root || !pageElement) return false;
+            beginProgrammaticNavigation(pageNumber);
+            setVisiblePages((current) => (current.includes(pageNumber) ? current : [pageNumber]));
+            const rootRect = root.getBoundingClientRect();
+            const pageRect = pageElement.getBoundingClientRect();
+            const maximumTop = Math.max(0, root.scrollHeight - root.clientHeight);
+            const maximumLeft = Math.max(0, root.scrollWidth - root.clientWidth);
+            const targetTop =
+                root.scrollTop +
+                (pageRect.top - rootRect.top) +
+                pageRect.height * Math.min(1, Math.max(0, Number(topRatio) || 0)) -
+                topOffset;
+            const targetLeft =
+                root.scrollLeft +
+                (pageRect.left - rootRect.left) +
+                pageRect.width * Math.min(1, Math.max(0, Number(leftRatio) || 0)) -
+                14;
+            const previousBehavior = root.style.scrollBehavior;
+            root.style.scrollBehavior = 'auto';
+            const nextTop = Math.min(maximumTop, Math.max(0, targetTop));
+            const nextLeft = Math.min(maximumLeft, Math.max(0, targetLeft));
+            if (typeof root.scrollTo === 'function') {
+                root.scrollTo({ top: nextTop, left: nextLeft, behavior: 'auto' });
+            } else {
+                root.scrollTop = nextTop;
+                root.scrollLeft = nextLeft;
+            }
+            root.style.scrollBehavior = previousBehavior;
+            return true;
+        },
+        [beginProgrammaticNavigation]
+    );
+
     const goToPage = useCallback(
         (pageNumber) => {
             const safePage = Math.min(pageCount, Math.max(1, Number(pageNumber) || 1));
             currentPageRef.current = safePage;
             onPageChange?.(safePage);
-            requestAnimationFrame(() => pageElementsRef.current.get(safePage)?.scrollIntoView({ block: 'start' }));
+            scrollToPagePosition(safePage);
         },
-        [onPageChange, pageCount]
+        [onPageChange, pageCount, scrollToPagePosition]
     );
 
     const goToAnnotation = useCallback(
@@ -685,29 +761,14 @@ const PdfWorkspace = forwardRef(function PdfWorkspace(
             const safePage = Math.min(pageCount, Math.max(1, Number(annotation?.pageNumber) || 1));
             currentPageRef.current = safePage;
             onPageChange?.(safePage);
-            requestAnimationFrame(() => {
-                const root = scrollRef.current;
-                const pageElement = pageElementsRef.current.get(safePage);
-                if (!root || !pageElement) return;
-                const firstRect = annotation?.rects?.[0];
-                if (!firstRect) {
-                    pageElement.scrollIntoView({ block: 'start' });
-                    return;
-                }
-                const rootRect = root.getBoundingClientRect();
-                const pageRect = pageElement.getBoundingClientRect();
-                const annotationY = Math.min(1, Math.max(0, Number(firstRect.y) || 0));
-                const visibleOffset = Math.min(120, root.clientHeight * 0.22);
-                const targetTop =
-                    root.scrollTop + (pageRect.top - rootRect.top) + pageRect.height * annotationY - visibleOffset;
-                const maximum = Math.max(0, root.scrollHeight - root.clientHeight);
-                root.scrollTo({
-                    top: Math.min(maximum, Math.max(0, targetTop)),
-                    behavior: 'smooth',
-                });
+            const root = scrollRef.current;
+            const firstRect = annotation?.rects?.[0];
+            scrollToPagePosition(safePage, {
+                topRatio: firstRect?.y ?? 0,
+                topOffset: firstRect ? Math.min(120, (root?.clientHeight ?? 0) * 0.22) : 14,
             });
         },
-        [onPageChange, pageCount]
+        [onPageChange, pageCount, scrollToPagePosition]
     );
 
     const navigateToPdfLinkDestination = useCallback(
@@ -721,27 +782,13 @@ const PdfWorkspace = forwardRef(function PdfWorkspace(
             }
             currentPageRef.current = safePage;
             onPageChangeRef.current?.(safePage);
-            requestAnimationFrame(() => {
-                const root = scrollRef.current;
-                const pageElement = pageElementsRef.current.get(safePage);
-                if (!root || !pageElement) return;
-                const rootRect = root.getBoundingClientRect();
-                const pageRect = pageElement.getBoundingClientRect();
-                const topRatio = Math.min(1, Math.max(0, Number(destination?.topRatio) || 0));
-                const leftRatio = Math.min(1, Math.max(0, Number(destination?.leftRatio) || 0));
-                const maximumTop = Math.max(0, root.scrollHeight - root.clientHeight);
-                const maximumLeft = Math.max(0, root.scrollWidth - root.clientWidth);
-                const targetTop = root.scrollTop + (pageRect.top - rootRect.top) + pageRect.height * topRatio - 14;
-                const targetLeft = root.scrollLeft + (pageRect.left - rootRect.left) + pageRect.width * leftRatio - 14;
-                root.scrollTo({
-                    top: Math.min(maximumTop, Math.max(0, targetTop)),
-                    left: Math.min(maximumLeft, Math.max(0, targetLeft)),
-                    behavior: 'smooth',
-                });
+            scrollToPagePosition(safePage, {
+                topRatio: destination?.topRatio,
+                leftRatio: destination?.leftRatio,
             });
             return safePage;
         },
-        [pageCount]
+        [pageCount, scrollToPagePosition]
     );
 
     const handlePdfNamedAction = useCallback(
@@ -926,6 +973,7 @@ const PdfWorkspace = forwardRef(function PdfWorkspace(
         const root = scrollRef.current;
         if (!root) return undefined;
         const handleWheel = (event) => {
+            clearProgrammaticNavigation();
             if (!event.ctrlKey && !event.metaKey) return;
             event.preventDefault();
             cancelPendingSelection(true);
@@ -956,7 +1004,7 @@ const PdfWorkspace = forwardRef(function PdfWorkspace(
             wheelZoomFrameRef.current = null;
             wheelZoomRef.current = null;
         };
-    }, [cancelPendingSelection, zoomTo]);
+    }, [cancelPendingSelection, clearProgrammaticNavigation, zoomTo]);
 
     useEffect(() => {
         const root = scrollRef.current;
@@ -1063,8 +1111,10 @@ const PdfWorkspace = forwardRef(function PdfWorkspace(
             if (selectionFrameRef.current != null) window.cancelAnimationFrame(selectionFrameRef.current);
             if (gestureZoomFrameRef.current != null) window.cancelAnimationFrame(gestureZoomFrameRef.current);
             if (pointerPinchFrameRef.current != null) window.cancelAnimationFrame(pointerPinchFrameRef.current);
+            clearTimeout(programmaticNavigationTimerRef.current);
             touchPointersRef.current.clear();
             pointerPinchRef.current = null;
+            programmaticNavigationRef.current = null;
         },
         []
     );
@@ -1098,17 +1148,34 @@ const PdfWorkspace = forwardRef(function PdfWorkspace(
     }, []);
 
     const handleVisibility = useCallback(
-        (pageNumber, isVisible, ratio) => {
+        (entries) => {
             if (restoringRef.current) return;
-            if (isVisible) visibilityRef.current.set(pageNumber, ratio);
-            else visibilityRef.current.delete(pageNumber);
+            for (const entry of entries) {
+                const pageNumber = Number(entry.target?.dataset?.pageNumber);
+                if (!(pageNumber > 0)) continue;
+                if (entry.isIntersecting) visibilityRef.current.set(pageNumber, entry.intersectionRatio);
+                else visibilityRef.current.delete(pageNumber);
+            }
+            const lockedPage = programmaticNavigationRef.current;
             const nextVisible = [...visibilityRef.current.keys()].sort((a, b) => a - b);
-            if (nextVisible.length > 0) {
+            const renderPages =
+                lockedPage && !nextVisible.includes(lockedPage)
+                    ? [...nextVisible, lockedPage].sort((a, b) => a - b)
+                    : nextVisible;
+            if (renderPages.length > 0) {
                 setVisiblePages((current) =>
-                    current.length === nextVisible.length && current.every((page, index) => page === nextVisible[index])
+                    current.length === renderPages.length && current.every((page, index) => page === renderPages[index])
                         ? current
-                        : nextVisible
+                        : renderPages
                 );
+            }
+
+            if (lockedPage) {
+                if (currentPageRef.current !== lockedPage) {
+                    currentPageRef.current = lockedPage;
+                    onPageChange?.(lockedPage);
+                }
+                return;
             }
 
             let bestPage = currentPageRef.current;
@@ -1131,15 +1198,11 @@ const PdfWorkspace = forwardRef(function PdfWorkspace(
         const root = scrollRef.current;
         if (!root || loadState !== 'ready') return undefined;
         // 整本书共用一个观察器；数千页时不再为每页创建独立 IntersectionObserver。
-        const observer = new IntersectionObserver(
-            (entries) => {
-                for (const entry of entries) {
-                    const pageNumber = Number(entry.target?.dataset?.pageNumber);
-                    if (pageNumber > 0) handleVisibility(pageNumber, entry.isIntersecting, entry.intersectionRatio);
-                }
-            },
-            { root, rootMargin: '0px', threshold: [0, 0.05, 0.25, 0.55, 0.9] }
-        );
+        const observer = new IntersectionObserver((entries) => handleVisibility(entries), {
+            root,
+            rootMargin: '0px',
+            threshold: [0, 0.05, 0.25, 0.55, 0.9],
+        });
         pageObserverRef.current = observer;
         pageElementsRef.current.forEach((element) => observer.observe(element));
         return () => {
@@ -1266,6 +1329,7 @@ const PdfWorkspace = forwardRef(function PdfWorkspace(
     finishTouchPointerRef.current = finishTouchPointer;
 
     const handlePointerDown = (event) => {
+        clearProgrammaticNavigation();
         const joinedPointerPinch = trackTouchPointerDown(event);
         if (joinedPointerPinch) return;
         cancelPendingSelection(false);
@@ -1479,6 +1543,55 @@ const PdfWorkspace = forwardRef(function PdfWorkspace(
         return map;
     }, [annotations]);
 
+    const handleWorkspaceClick = (event) => {
+        if (
+            event.button !== 0 ||
+            event.target.closest?.('a, button, input, select, textarea, [contenteditable="true"]')
+        )
+            return;
+        const pageElement = event.target.closest?.('[data-page-number]');
+        if (!pageElement) return;
+        const pageNumber = Number(pageElement.dataset.pageNumber);
+        if (!(pageNumber > 0)) return;
+        const pageRect = pageElement.getBoundingClientRect();
+        const pageAnnotations = annotationsByPage.get(pageNumber) ?? [];
+        const annotation = findAnnotationAtPdfPoint(pageAnnotations, pageRect, event.clientX, event.clientY);
+        const rootRect = scrollRef.current?.getBoundingClientRect();
+        const placement = {
+            anchorRect: {
+                left: event.clientX,
+                right: event.clientX,
+                top: event.clientY,
+                bottom: event.clientY,
+                width: 0,
+                height: 0,
+            },
+            boundaryRect: rootRect
+                ? { left: rootRect.left, right: rootRect.right, top: rootRect.top, bottom: rootRect.bottom }
+                : undefined,
+        };
+
+        if (annotation) {
+            event.preventDefault();
+            cancelPendingSelection(true);
+            onAnnotationActivate?.(annotation, placement);
+            return;
+        }
+        if (interactionMode !== 'text') return;
+        event.preventDefault();
+        cancelPendingSelection(true);
+        onTextInsert?.(
+            createPdfTextAnnotation({
+                paperId: document?.paper?.id,
+                pageNumber,
+                pageRect,
+                clientX: event.clientX,
+                clientY: event.clientY,
+            }),
+            placement
+        );
+    };
+
     if (loadState === 'error') {
         return (
             <main className='pdf-workspace pdf-workspace--error'>
@@ -1497,7 +1610,9 @@ const PdfWorkspace = forwardRef(function PdfWorkspace(
             aria-busy={loadState === 'loading' || restoringProgress}
             aria-label={textMode ? '文献阅读区' : 'PDF 阅读区'}
             onScroll={handleScroll}
-            onAuxClick={(event) => event.preventDefault()}
+            onAuxClick={(event) => {
+                if (!event.target.closest?.('a')) event.preventDefault();
+            }}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={(event) => {
@@ -1512,6 +1627,7 @@ const PdfWorkspace = forwardRef(function PdfWorkspace(
             }}
             onLostPointerCapture={finishPan}
             onMouseUp={finishSelectionGesture}
+            onClick={handleWorkspaceClick}
             onContextMenu={handleContextMenu}
         >
             {loadState === 'loading' ? (

@@ -192,6 +192,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
     const [selectionMenu, setSelectionMenu] = useState(null);
     const [noteEditorOpen, setNoteEditorOpen] = useState(false);
     const [noteEditorTarget, setNoteEditorTarget] = useState(null);
+    const [noteEditorPlacement, setNoteEditorPlacement] = useState(null);
     const [readerSidebarTab, setReaderSidebarTab] = useState('insights');
     const [annotationKindFilter, setAnnotationKindFilter] = useState('');
     const [relations, setRelations] = useState({ outbound: [], inbound: [] });
@@ -335,6 +336,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
             setRelations({ outbound: [], inbound: [] });
             setNoteEditorOpen(false);
             setNoteEditorTarget(null);
+            setNoteEditorPlacement(null);
             setReaderSidebarTab('insights');
             setAnnotationKindFilter('');
             setInsights({ status: 'not_started' });
@@ -379,6 +381,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                     setSelectionMenu(null);
                     setNoteEditorOpen(false);
                     setNoteEditorTarget(null);
+                    setNoteEditorPlacement(null);
                     setTranslation({ status: 'idle', loading: false, text: '', error: '' });
                     setLexiconState({ loading: false, entry: null, error: '' });
                 }
@@ -578,6 +581,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
             setSelectionMenu(null);
             setNoteEditorOpen(false);
             setNoteEditorTarget(null);
+            setNoteEditorPlacement(null);
             setTargetLanguage((current) => resolveAcademicTargetLanguage(anchor?.quote, current));
             setTranslation({ status: 'loading', loading: true, text: '', error: '' });
             setLexiconState({ loading: false, entry: null, error: '' });
@@ -629,6 +633,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
             setSelectionMenu(null);
             setNoteEditorOpen(false);
             setNoteEditorTarget(null);
+            setNoteEditorPlacement(null);
             setReaderSidebarTab('insights');
             setAnnotationKindFilter('');
             setTranslation({ status: 'idle', loading: false, text: '', error: '' });
@@ -661,23 +666,27 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
             const annotation = target && typeof target === 'object' ? target : null;
             const pageNumber = annotation?.pageNumber ?? target;
             const safePage = Math.min(pageCount, Math.max(1, Number(pageNumber) || 1));
-            setCurrentPage(safePage);
             if (annotation && pdfRef.current?.goToAnnotation) pdfRef.current.goToAnnotation(annotation);
-            else pdfRef.current?.goToPage(safePage);
+            else if (pdfRef.current?.goToPage) pdfRef.current.goToPage(safePage);
+            else setCurrentPage(safePage);
         },
         [pageCount]
     );
 
     const handleOpenAnnotation = useCallback(
-        (annotation) => {
+        (annotation, placement = null) => {
             if (!annotation) return;
-            handlePageJump(annotation);
-            if (annotationKind(annotation) !== 'note') return;
-            sidebarResize.expand();
-            setReaderSidebarTab('annotations');
-            setAnnotationKindFilter('note');
+            if (!placement) handlePageJump(annotation);
+            if (!['note', 'highlight', 'text'].includes(annotationKind(annotation))) return;
+            if (!placement) {
+                sidebarResize.expand();
+                setReaderSidebarTab('annotations');
+                setAnnotationKindFilter(annotationKind(annotation));
+            }
             setSelectionMenu(null);
+            setSelectionOverlay(null);
             setNoteEditorTarget(annotation);
+            setNoteEditorPlacement(placement);
             setNoteEditorOpen(true);
         },
         [handlePageJump, sidebarResize.expand]
@@ -838,12 +847,30 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
     const openNoteEditorForSelection = useCallback(() => {
         if (!selection) return;
         setNoteEditorTarget(selection);
+        setNoteEditorPlacement(null);
         setNoteEditorOpen(true);
     }, [selection]);
+
+    const openTextEditorAtPoint = useCallback(
+        (annotation, placement) => {
+            if (!annotation) return;
+            invalidateSelectionTranslation();
+            cancelSpeechRequest();
+            setSelection(null);
+            setSelectionOverlay(null);
+            setSelectionMenu(null);
+            setTranslation({ status: 'idle', loading: false, text: '', error: '' });
+            setNoteEditorTarget(annotation);
+            setNoteEditorPlacement(placement ?? null);
+            setNoteEditorOpen(true);
+        },
+        [invalidateSelectionTranslation]
+    );
 
     const closeNoteEditor = useCallback(() => {
         setNoteEditorOpen(false);
         setNoteEditorTarget(null);
+        setNoteEditorPlacement(null);
         setSelectionMenu(null);
     }, []);
 
@@ -856,10 +883,10 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
     );
 
     const handleAnnotationActivate = useCallback(
-        (annotation) => {
+        (annotation, placement) => {
             if (!annotation) return;
-            if (annotationKind(annotation) === 'note') {
-                handleOpenAnnotation(annotation);
+            if (['note', 'highlight', 'text'].includes(annotationKind(annotation))) {
+                handleOpenAnnotation(annotation, placement);
                 return;
             }
             handlePageJump(annotation);
@@ -878,7 +905,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
 
     const handleDeleteAnnotation = useCallback(
         async (annotation) => {
-            if (!annotation?.id) return;
+            if (!annotation?.id) return false;
             const sourcePaperId = annotation.paperId ?? document?.paper?.id;
             const sourceEpoch = readerEpochRef.current;
             const snapshot = { ...annotation, paperId: sourcePaperId };
@@ -910,10 +937,12 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                             : `已删除批注，可按 ${UNDO_SHORTCUT} 恢复`
                     )
                 );
+                return true;
             } catch (reason) {
                 if (sourceEpoch === readerEpochRef.current) {
                     setToastNotice(createResearchToast(`删除批注失败：${String(reason?.message ?? reason)}`));
                 }
+                return false;
             }
         },
         [document?.paper?.id]
@@ -953,6 +982,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
         setSelectionMenu(null);
         setNoteEditorOpen(false);
         setNoteEditorTarget(null);
+        setNoteEditorPlacement(null);
         setTranslation({ status: 'idle', loading: false, text: '', error: '' });
         setLexiconState({ loading: false, entry: null, error: '' });
         setAiState({
@@ -1084,6 +1114,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
         setSelectionMenu(null);
         setNoteEditorOpen(false);
         setNoteEditorTarget(null);
+        setNoteEditorPlacement(null);
         setReaderSidebarTab('insights');
         setAnnotationKindFilter('');
         setToastNotice(null);
@@ -1438,7 +1469,9 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                             setSelectionOverlay(null);
                             setNoteEditorOpen(false);
                             setNoteEditorTarget(null);
+                            setNoteEditorPlacement(null);
                         }}
+                        onTextInsert={openTextEditorAtPoint}
                         onAnnotationActivate={handleAnnotationActivate}
                         onAnnotationDelete={handleDeleteAnnotation}
                         onLinkError={handlePdfLinkError}
@@ -1515,7 +1548,8 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                         open={Boolean(noteEditorTarget && noteEditorOpen)}
                         selection={noteEditorTarget}
                         anchorRect={
-                            noteEditorTarget?.id
+                            noteEditorPlacement?.anchorRect ??
+                            (noteEditorTarget?.id
                                 ? undefined
                                 : selectionMenu
                                   ? {
@@ -1524,15 +1558,17 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                                         top: selectionMenu.clientY,
                                         bottom: selectionMenu.clientY,
                                     }
-                                  : selectionOverlay?.anchorRect
+                                  : selectionOverlay?.anchorRect)
                         }
                         boundaryRect={
-                            noteEditorTarget?.id
+                            noteEditorPlacement?.boundaryRect ??
+                            (noteEditorTarget?.id
                                 ? undefined
-                                : selectionMenu?.boundaryRect ?? selectionOverlay?.boundaryRect
+                                : selectionMenu?.boundaryRect ?? selectionOverlay?.boundaryRect)
                         }
                         tagSuggestions={annotationTagSuggestions}
                         onSave={handleSaveAnnotation}
+                        onDelete={handleDeleteAnnotation}
                         onClose={closeNoteEditor}
                     />
                 </>

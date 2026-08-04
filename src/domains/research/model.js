@@ -137,7 +137,7 @@ export function classifySelection(text) {
 
 export function annotationKind(annotation) {
     const explicit = String(annotation?.kind ?? '').trim();
-    if (['vocabulary', 'excerpt', 'note', 'highlight'].includes(explicit)) return explicit;
+    if (['vocabulary', 'excerpt', 'note', 'highlight', 'text'].includes(explicit)) return explicit;
     return String(annotation?.note ?? '').trim() ? 'note' : 'highlight';
 }
 
@@ -162,11 +162,13 @@ export function summarizeAnnotations(annotations) {
     let vocabulary = 0;
     let excerpts = 0;
     let highlights = 0;
+    let texts = 0;
     safeAnnotations.forEach((annotation) => {
         const kind = annotationKind(annotation);
         if (kind === 'vocabulary') vocabulary += 1;
         else if (kind === 'excerpt') excerpts += 1;
         else if (kind === 'note') notes += 1;
+        else if (kind === 'text') texts += 1;
         else highlights += 1;
         normalizeAnnotationTags(annotation?.tags).forEach((tag) => {
             const key = tag.normalize('NFKC').toLocaleLowerCase();
@@ -180,6 +182,7 @@ export function summarizeAnnotations(annotations) {
         vocabulary,
         excerpts,
         highlights,
+        texts,
         tags: [...tagCounts.values()].sort(
             (left, right) => right.count - left.count || TAG_NAME_COLLATOR.compare(left.name, right.name)
         ),
