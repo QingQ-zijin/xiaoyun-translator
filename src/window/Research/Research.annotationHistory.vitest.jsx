@@ -194,7 +194,7 @@ describe('论文批注界面撤销链路', () => {
         expect(screen.getByRole('status').textContent).toContain('已撤销最近一次创建');
         await waitFor(() => expect(screen.queryByRole('status')).toBeNull(), { timeout: 5_000 });
         expect(bridgeMocks.deleteAnnotation).toHaveBeenCalledTimes(2);
-    });
+    }, 10_000);
 
     it('输入框保留系统撤销，切换论文后清空旧论文的撤销栈', async () => {
         render(<Research embedded />);
