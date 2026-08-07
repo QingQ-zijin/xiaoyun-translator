@@ -41,6 +41,17 @@ afterEach(() => {
 });
 
 describe('学术翻译工作区 Ollama 恢复', () => {
+    it('在翻译主页提供醒目的文档翻译入口', async () => {
+        render(<TranslationWorkspace desktop={false} />);
+
+        const documentMode = screen.getByRole('button', { name: /文档翻译/u });
+        expect(documentMode.getAttribute('aria-pressed')).toBe('false');
+        fireEvent.click(documentMode);
+
+        expect(await screen.findByText('拖入整篇文件，得到完整译文 PDF')).toBeTruthy();
+        expect(documentMode.getAttribute('aria-pressed')).toBe('true');
+    });
+
     it('后端未就绪时低频重检，模型启动后自动恢复翻译按钮', async () => {
         let statusCalls = 0;
         const invokeCommand = vi.fn(async (command) => {

@@ -5,6 +5,7 @@ const bridgeMocks = vi.hoisted(() => ({
     translateSelection: vi.fn(),
     askPaper: vi.fn(),
     speakText: vi.fn(),
+    saveAnnotation: vi.fn(),
 }));
 
 const speechMocks = vi.hoisted(() => ({
@@ -35,6 +36,7 @@ vi.mock('../../domains/research/bridge', async () => {
         translateSelection: bridgeMocks.translateSelection,
         askPaper: bridgeMocks.askPaper,
         speakText: bridgeMocks.speakText,
+        saveAnnotation: bridgeMocks.saveAnnotation,
     };
 });
 
@@ -140,7 +142,7 @@ vi.mock('./components/PdfWorkspace', async () => {
 });
 
 vi.mock('./components/SelectionTranslationPopover', () => ({
-    default: ({ open, loading, error, value, onRetry, onClose, onSpeak, onExplain, aiState }) =>
+    default: ({ open, loading, error, value, onRetry, onClose, onSpeak, onExplain, onHighlight, aiState }) =>
         open ? (
             <aside aria-label='论文划词翻译状态'>
                 {loading ? <span role='status'>正在翻译</span> : null}
@@ -166,6 +168,12 @@ vi.mock('./components/SelectionTranslationPopover', () => ({
                     onClick={onExplain}
                 >
                     解释选择
+                </button>
+                <button
+                    type='button'
+                    onClick={() => onHighlight?.({ color: 'green' })}
+                >
+                    高亮并保存译文
                 </button>
                 <button
                     type='button'
@@ -208,6 +216,10 @@ beforeEach(() => {
         refused: false,
         retrievalMode: 'contextual',
     });
+    bridgeMocks.saveAnnotation.mockImplementation(async (annotation) => ({
+        ...annotation,
+        id: annotation.id || 'saved-annotation',
+    }));
 });
 
 afterEach(() => {
@@ -248,6 +260,35 @@ describe('论文划词翻译请求时序', () => {
         });
         expect(screen.getByTestId('selection-translation').textContent).toBe('最新完整译文');
         expect(screen.queryByText('正在翻译')).toBeNull();
+    });
+
+    it('高亮会等待完整译文，并把译文作为可编辑笔记原子保存', async () => {
+        bridgeMocks.translateSelection.mockResolvedValue('第一句的完整译文。');
+        await openReader();
+        vi.useFakeTimers();
+
+        fireEvent.click(screen.getByRole('button', { name: '选择第一句' }));
+        await act(async () => vi.advanceTimersByTimeAsync(41));
+        await act(async () => {
+            await Promise.resolve();
+        });
+        fireEvent.click(screen.getByRole('button', { name: '高亮并保存译文' }));
+        await act(async () => {
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        expect(bridgeMocks.saveAnnotation).toHaveBeenCalledWith(
+            expect.objectContaining({
+                paperId: 'paper-selection',
+                quote: 'First sentence.',
+                kind: 'note',
+                color: 'green',
+                note: '第一句的完整译文。',
+                translation: '第一句的完整译文。',
+                tags: ['高亮译文'],
+            })
+        );
     });
 
     it('悬挂请求会给出明确错误，并可在原选区重试恢复', async () => {

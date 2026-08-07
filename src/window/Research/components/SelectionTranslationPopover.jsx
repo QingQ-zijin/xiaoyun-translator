@@ -466,12 +466,13 @@ export default function SelectionTranslationPopover({
                     className='selection-translation-popover__action'
                     type='button'
                     disabled={!sourceText || !onHighlight}
+                    title='选择颜色，并把完整译文保存为可编辑笔记'
                     aria-expanded={highlightOpen}
                     aria-controls='selection-translation-highlight-colors'
                     onClick={() => setHighlightOpen((current) => !current)}
                 >
                     <PiHighlighter aria-hidden='true' />
-                    <span>高亮</span>
+                    <span>高亮存笔记</span>
                 </button>
                 {highlightOpen ? (
                     <div

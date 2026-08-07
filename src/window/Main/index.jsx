@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event';
 
 import Research from '../Research';
 import MainRail from './MainRail';
+import MainTitlebar from './MainTitlebar';
 import OllamaFirstRunGate from './OllamaFirstRunGate';
 import SettingsPanel from './SettingsPanel';
 import TranslationWorkspace from './TranslationWorkspace';
@@ -52,6 +53,10 @@ export default function Main() {
         <div className={`main-shell main-shell--${active}`}>
             <OllamaFirstRunGate />
             <UpdateNotice updater={updater} />
+            <MainTitlebar
+                active={active}
+                onNavigate={navigate}
+            />
             <MainRail
                 active={active}
                 onNavigate={navigate}

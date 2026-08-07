@@ -58,6 +58,22 @@ describe('论文阅读器翻译模型状态', () => {
         expect(screen.queryByRole('button', { name: /放大|缩小/ })).toBeNull();
     });
 
+    it('从顶部入口打开全文翻译，并持续显示断点页数', () => {
+        const onDocumentTranslate = vi.fn();
+        renderTopbar(
+            { ready: true, message: '已就绪' },
+            {
+                onDocumentTranslate,
+                documentTranslationTask: { status: 'paused', completedPages: 3, totalPages: 12 },
+            }
+        );
+
+        const button = screen.getByRole('button', { name: '全文翻译' });
+        expect(button.textContent).toContain('3/12');
+        fireEvent.click(button);
+        expect(onDocumentTranslate).toHaveBeenCalledOnce();
+    });
+
     it('按项目分组论文，并把未加入项目的论文放入未分类', () => {
         const groups = groupPapersByProject(
             [

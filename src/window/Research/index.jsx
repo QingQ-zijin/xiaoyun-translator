@@ -59,6 +59,7 @@ import {
 } from './annotationUndo';
 import AppRail from './components/AppRail';
 import AnnotationEditorPopover from './components/AnnotationEditorPopover';
+import DocumentTranslationDialog from './components/DocumentTranslationDialog';
 import ImportKindDialog from './components/ImportKindDialog';
 import LibrarySidebar from './components/LibrarySidebar';
 import PaperLibrary from './components/PaperLibrary';
@@ -66,6 +67,7 @@ import PdfWorkspace from './components/PdfWorkspace';
 import ReaderTopbar, { getOllamaModelDisplayName, getTranslationStatusPresentation } from './components/ReaderTopbar';
 import SelectionContextMenu from './components/SelectionContextMenu';
 import SelectionTranslationPopover from './components/SelectionTranslationPopover';
+import { useDocumentTranslationTask } from './hooks/useDocumentTranslationTask';
 import { useResearchLibrary } from './hooks/useResearchLibrary';
 import {
     enqueueImportedPapersInsights,
@@ -140,7 +142,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
     const runSpeechRequest = useSpeechRequest();
     const pdfRef = useRef(null);
     const aiAbortRef = useRef(null);
-    const translationRequestRef = useRef({ id: 0, controller: null });
+    const translationRequestRef = useRef({ id: 0, controller: null, promise: null });
     const startWithDemo = !startInLibrary && !isTauriRuntime();
     const [paperId, setPaperId] = useState(() => (startWithDemo ? 'demo-memory' : ''));
     const paperIdRef = useRef(paperId);
@@ -219,6 +221,13 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
     annotationsRef.current = annotations;
     libraryPapersRef.current = library.papers;
 
+    const documentTranslation = useDocumentTranslationTask({
+        document,
+        paperInsights: insights,
+        translationModel: translationStatus.model,
+        onNotice: (message) => setToastNotice(createResearchToast(message)),
+    });
+
     useEffect(() => {
         if (!toastNotice) return undefined;
         const noticeId = toastNotice.id;
@@ -231,7 +240,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
     const invalidateSelectionTranslation = useCallback(() => {
         const active = translationRequestRef.current;
         active.controller?.abort();
-        translationRequestRef.current = { id: active.id + 1, controller: null };
+        translationRequestRef.current = { id: active.id + 1, controller: null, promise: null };
     }, []);
 
     const scheduleImportedInsights = useCallback((importedPapers, options) => {
@@ -435,7 +444,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
         if (!selection || !document?.paper) return undefined;
         const controller = new AbortController();
         const requestId = translationRequestRef.current.id + 1;
-        translationRequestRef.current = { id: requestId, controller };
+        translationRequestRef.current = { id: requestId, controller, promise: null };
         const isCurrentRequest = () => translationRequestRef.current.id === requestId && !controller.signal.aborted;
         let watchdogTimer = null;
         // 先立即呈现空的加载浮窗，再用极短防抖发请求；界面响应不再被请求防抖阻塞。
@@ -457,7 +466,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                 }, timeoutMs);
             };
             armWatchdog(PAPER_SELECTION_TRANSLATION_TIMEOUT_MS, '论文划词翻译等待超过 20 秒，已取消。请重试。');
-            void translateSelection({
+            const requestPromise = translateSelection({
                 selection,
                 paperTitle: document.paper.title,
                 paperInsights: insightsRef.current,
@@ -487,11 +496,15 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                     }));
                     setTranslationStatus((current) => ({ ...current, ready: false, message }));
                 },
-            })
+            });
+            if (isCurrentRequest()) {
+                translationRequestRef.current = { id: requestId, controller, promise: requestPromise };
+            }
+            void requestPromise
                 .then((text) => {
                     clearTimeout(watchdogTimer);
                     if (isCurrentRequest()) {
-                        translationRequestRef.current = { id: requestId, controller: null };
+                        translationRequestRef.current = { id: requestId, controller: null, promise: requestPromise };
                         setTranslation({ status: 'complete', loading: false, text, error: '', message: '' });
                         setTranslationStatus((current) => ({
                             ...current,
@@ -503,7 +516,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                 .catch((reason) => {
                     clearTimeout(watchdogTimer);
                     if (isCurrentRequest() && reason?.name !== 'AbortError') {
-                        translationRequestRef.current = { id: requestId, controller: null };
+                        translationRequestRef.current = { id: requestId, controller: null, promise: requestPromise };
                         const message = String(reason?.message ?? reason);
                         setTranslation({ status: 'failed', loading: false, text: '', error: message, message: '' });
                         setTranslationStatus((current) => ({
@@ -519,7 +532,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
             clearTimeout(watchdogTimer);
             controller.abort();
             if (translationRequestRef.current.id === requestId) {
-                translationRequestRef.current = { id: requestId + 1, controller: null };
+                translationRequestRef.current = { id: requestId + 1, controller: null, promise: null };
             }
         };
     }, [document?.paper, selection, targetLanguage, translationRetryToken]);
@@ -874,18 +887,58 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
         setSelectionMenu(null);
     }, []);
 
+    const awaitSelectionTranslation = useCallback(async () => {
+        const completedText = translation.status === 'complete' ? String(translation.text ?? '').trim() : '';
+        if (completedText) return completedText;
+
+        // 点击颜色的时刻可能恰好落在 40 ms 防抖窗口内，先让当前翻译请求完成注册。
+        if (!translationRequestRef.current.promise) {
+            await new Promise((resolve) => globalThis.setTimeout(resolve, PDF_SELECTION_DEBOUNCE_MS + 20));
+        }
+        const pending = translationRequestRef.current.promise;
+        if (!pending) throw new Error('译文请求尚未开始，请重新划选后再试');
+        const text = String(await pending).trim();
+        if (!text) throw new Error('模型返回了空译文，请重试');
+        return text;
+    }, [translation.status, translation.text]);
+
     const highlightSelection = useCallback(
         async ({ color = 'violet' } = {}) => {
             if (!selection) return;
-            await handleSaveAnnotation({ ...selection, kind: 'highlight', color, note: '', tags: [] });
+            const sourceSelection = selection;
+            const sourceRequestId = translationRequestRef.current.id;
+            try {
+                const translatedText = await awaitSelectionTranslation();
+                if (translationRequestRef.current.id !== sourceRequestId) return;
+                await handleSaveAnnotation({
+                    ...sourceSelection,
+                    kind: 'note',
+                    color,
+                    note: translatedText,
+                    translation: translatedText,
+                    tags: ['高亮译文'],
+                });
+                setToastNotice(createResearchToast('已高亮，译文已保存到笔记'));
+            } catch (reason) {
+                setToastNotice(createResearchToast(`高亮保存失败：${String(reason?.message ?? reason)}`));
+            }
         },
-        [handleSaveAnnotation, selection]
+        [awaitSelectionTranslation, handleSaveAnnotation, selection]
     );
 
     const handleAnnotationActivate = useCallback(
         (annotation, placement) => {
             if (!annotation) return;
-            if (['note', 'highlight', 'text'].includes(annotationKind(annotation))) {
+            const kind = annotationKind(annotation);
+            if (kind === 'highlight' && !String(annotation.note ?? '').trim()) {
+                handleSelection(
+                    annotation,
+                    [annotation.prefix, annotation.quote, annotation.suffix].filter(Boolean).join(' '),
+                    placement
+                );
+                return;
+            }
+            if (['note', 'highlight', 'text'].includes(kind)) {
                 handleOpenAnnotation(annotation, placement);
                 return;
             }
@@ -895,7 +948,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                 createResearchToast([annotation.note, tags].filter(Boolean).join(' · ') || '已定位到这条批注')
             );
         },
-        [handleOpenAnnotation, handlePageJump]
+        [handleOpenAnnotation, handlePageJump, handleSelection]
     );
 
     const handlePdfLinkError = useCallback((reason) => {
@@ -1438,6 +1491,8 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                     onInteractionModeChange={setInteractionMode}
                     onSearch={(query) => pdfRef.current?.search(query)}
                     translationStatus={translationStatus}
+                    documentTranslationTask={documentTranslation.task}
+                    onDocumentTranslate={documentTranslation.show}
                     sidebarCollapsed={sidebarCollapsed}
                     onSidebarToggle={sidebarResize.toggleCollapsed}
                 />
@@ -1633,6 +1688,20 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                 pendingFileCount={importRequest.paths?.length ?? 0}
                 onSelect={handleImportKindSelect}
                 onClose={() => setImportRequest({ open: false, paths: null })}
+            />
+            <DocumentTranslationDialog
+                open={documentTranslation.open}
+                paper={documentTranslation.task.paper ?? document?.paper}
+                task={documentTranslation.task}
+                targetLanguage={documentTranslation.targetLanguage}
+                includeOriginal={documentTranslation.includeOriginal}
+                onTargetLanguageChange={documentTranslation.setTargetLanguage}
+                onIncludeOriginalChange={documentTranslation.setIncludeOriginal}
+                onStart={() => void documentTranslation.start()}
+                onPause={documentTranslation.pause}
+                onReset={() => void documentTranslation.reset()}
+                onExport={() => void documentTranslation.exportPdf()}
+                onClose={documentTranslation.close}
             />
         </div>
     );

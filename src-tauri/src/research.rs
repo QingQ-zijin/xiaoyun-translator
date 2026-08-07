@@ -31,6 +31,8 @@ const MAX_REFERENCE_TOTAL_CHARACTERS: usize = 32_000_000;
 const MAX_REFERENCE_ENTRIES: usize = 4_000;
 const MAX_ANNOTATION_QUOTE_CHARACTERS: usize = 20_000;
 const MAX_ANNOTATION_PAYLOAD_BYTES: usize = 64 * 1024;
+const MAX_DOCUMENT_PAGE_CHARACTERS: usize = 2_000_000;
+const MAX_DOCUMENT_TRANSLATION_CHARACTERS: usize = 4_000_000;
 const MAX_TEXT_DOCUMENT_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_DOCUMENT_OUTLINE_ITEMS: usize = 4_096;
 const MAX_DOCUMENT_OUTLINE_TITLE_CHARACTERS: usize = 500;
@@ -137,6 +139,26 @@ pub struct PaperDocument {
     pub text_index_complete: bool,
     pub progress: ReadingProgress,
     pub outline: Vec<OutlineItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentTextPage {
+    pub page_number: i64,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentTranslationPage {
+    pub paper_id: String,
+    pub target_language: String,
+    pub page_number: i64,
+    pub source_text: String,
+    pub translation: String,
+    pub model: String,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -418,6 +440,15 @@ fn initialise_schema(connection: &Connection) -> Result<(), String> {
                 UNIQUE (paper_id, page_number, chunk_index)
             );
 
+            CREATE TABLE IF NOT EXISTS document_pages (
+                paper_id TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+                page_number INTEGER NOT NULL,
+                content TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (paper_id, page_number),
+                CHECK (page_number >= 1)
+            );
+
             CREATE VIRTUAL TABLE IF NOT EXISTS document_chunks_fts USING fts5(
                 paper_id UNINDEXED,
                 page_number UNINDEXED,
@@ -441,6 +472,22 @@ fn initialise_schema(connection: &Connection) -> Result<(), String> {
                 translation TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS document_translation_pages (
+                paper_id TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+                target_language TEXT NOT NULL,
+                page_number INTEGER NOT NULL,
+                source_text TEXT NOT NULL,
+                translation TEXT NOT NULL,
+                model TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (paper_id, target_language, page_number),
+                CHECK (page_number >= 1)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_document_translation_pages_updated
+                ON document_translation_pages(paper_id, target_language, updated_at);
 
             CREATE TABLE IF NOT EXISTS paper_insights (
                 paper_id TEXT PRIMARY KEY REFERENCES papers(id) ON DELETE CASCADE,
@@ -3529,7 +3576,22 @@ fn replace_page_chunks(
     text: &str,
 ) -> Result<usize, String> {
     let safe_page_number = page_number.max(1);
+    let normalized_text = text.replace("\r\n", "\n").replace('\r', "\n");
+    if normalized_text.chars().count() > MAX_DOCUMENT_PAGE_CHARACTERS {
+        return Err(format!(
+            "第 {safe_page_number} 页文本超过 {MAX_DOCUMENT_PAGE_CHARACTERS} 个字符"
+        ));
+    }
     let chunks = split_chunks(text, 1_200, 180);
+    transaction
+        .execute(
+            "INSERT INTO document_pages(paper_id, page_number, content, updated_at)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(paper_id, page_number) DO UPDATE SET
+                content=excluded.content, updated_at=excluded.updated_at",
+            params![paper_id, safe_page_number, normalized_text, now()],
+        )
+        .map_err(|error| format!("保存第 {safe_page_number} 页原文失败：{error}"))?;
     transaction
         .execute(
             "DELETE FROM document_chunks_fts WHERE paper_id = ?1 AND page_number = ?2",
@@ -3567,6 +3629,230 @@ fn replace_page_chunks(
             .map_err(|error| error.to_string())?;
     }
     Ok(chunks.len())
+}
+
+fn append_without_chunk_overlap(output: &mut String, next: &str) {
+    let next = next.trim();
+    if next.is_empty() {
+        return;
+    }
+    if output.is_empty() {
+        output.push_str(next);
+        return;
+    }
+
+    let left: Vec<char> = output.chars().collect();
+    let right: Vec<char> = next.chars().collect();
+    let maximum = 256.min(left.len()).min(right.len());
+    let overlap = (12..=maximum)
+        .rev()
+        .find(|size| left[left.len() - *size..] == right[..*size])
+        .unwrap_or(0);
+    if overlap == 0 {
+        output.push_str("\n\n");
+    }
+    output.extend(right[overlap..].iter());
+}
+
+fn load_document_pages_on(
+    connection: &Connection,
+    paper_id: &str,
+) -> Result<Vec<DocumentTextPage>, String> {
+    let mut by_page = BTreeMap::<i64, String>::new();
+    let mut statement = connection
+        .prepare(
+            "SELECT page_number, content FROM document_pages
+             WHERE paper_id = ?1 ORDER BY page_number",
+        )
+        .map_err(|error| error.to_string())?;
+    let persisted = statement
+        .query_map(params![paper_id], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|error| error.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())?;
+    by_page.extend(persisted);
+    let persisted_page_numbers = by_page.keys().copied().collect::<BTreeSet<_>>();
+
+    // 4.5.8 及更早版本只有带重叠的检索块。首次读取时无损去重并回填完整页，
+    // 这样旧论文无需重新导入即可参与全文翻译。
+    let mut chunk_statement = connection
+        .prepare(
+            "SELECT page_number, content FROM document_chunks
+             WHERE paper_id = ?1 ORDER BY page_number, chunk_index",
+        )
+        .map_err(|error| error.to_string())?;
+    let chunks = chunk_statement
+        .query_map(params![paper_id], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|error| error.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())?;
+    for (page_number, content) in chunks {
+        if persisted_page_numbers.contains(&page_number) {
+            continue;
+        }
+        append_without_chunk_overlap(by_page.entry(page_number).or_default(), &content);
+    }
+
+    let timestamp = now();
+    for (page_number, content) in &by_page {
+        if persisted_page_numbers.contains(page_number) || content.trim().is_empty() {
+            continue;
+        }
+        connection
+            .execute(
+                "INSERT INTO document_pages(paper_id, page_number, content, updated_at)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(paper_id, page_number) DO UPDATE SET
+                    content=excluded.content, updated_at=excluded.updated_at",
+                params![paper_id, page_number, content.trim(), timestamp],
+            )
+            .map_err(|error| format!("回填第 {page_number} 页全文失败：{error}"))?;
+    }
+
+    Ok(by_page
+        .into_iter()
+        .filter_map(|(page_number, text)| {
+            let text = text.trim().to_string();
+            (!text.is_empty()).then_some(DocumentTextPage { page_number, text })
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub fn research_get_document_pages(paper_id: String) -> Result<Vec<DocumentTextPage>, String> {
+    if paper_id.trim().is_empty() {
+        return Err("论文 ID 不能为空".to_string());
+    }
+    with_database(|connection| load_document_pages_on(connection, paper_id.trim()))
+}
+
+#[tauri::command]
+pub fn research_list_document_translation_pages(
+    paper_id: String,
+    target_language: String,
+) -> Result<Vec<DocumentTranslationPage>, String> {
+    let paper_id = paper_id.trim();
+    let target_language = target_language.trim();
+    if paper_id.is_empty() || target_language.is_empty() {
+        return Err("论文 ID 和目标语言不能为空".to_string());
+    }
+    with_database(|connection| {
+        let mut statement = connection
+            .prepare(
+                "SELECT paper_id, target_language, page_number, source_text, translation,
+                        model, created_at, updated_at
+                 FROM document_translation_pages
+                 WHERE paper_id = ?1 AND target_language = ?2
+                 ORDER BY page_number",
+            )
+            .map_err(|error| error.to_string())?;
+        let pages = statement
+            .query_map(params![paper_id, target_language], |row| {
+                Ok(DocumentTranslationPage {
+                    paper_id: row.get(0)?,
+                    target_language: row.get(1)?,
+                    page_number: row.get(2)?,
+                    source_text: row.get(3)?,
+                    translation: row.get(4)?,
+                    model: row.get(5)?,
+                    created_at: row.get(6)?,
+                    updated_at: row.get(7)?,
+                })
+            })
+            .map_err(|error| error.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?;
+        Ok(pages)
+    })
+}
+
+#[tauri::command]
+pub fn research_save_document_translation_page(
+    paper_id: String,
+    target_language: String,
+    page_number: i64,
+    source_text: String,
+    translation: String,
+    model: String,
+) -> Result<DocumentTranslationPage, String> {
+    let paper_id = paper_id.trim().to_string();
+    let target_language = target_language.trim().to_string();
+    let source_text = source_text.trim().to_string();
+    let translation = translation.trim().to_string();
+    let model = model.trim().to_string();
+    let page_number = page_number.max(1);
+    if paper_id.is_empty() || target_language.is_empty() {
+        return Err("论文 ID 和目标语言不能为空".to_string());
+    }
+    if source_text.is_empty() || translation.is_empty() {
+        return Err("全文翻译页的原文和译文不能为空".to_string());
+    }
+    if source_text.chars().count() > MAX_DOCUMENT_PAGE_CHARACTERS
+        || translation.chars().count() > MAX_DOCUMENT_TRANSLATION_CHARACTERS
+    {
+        return Err("全文翻译页内容过长".to_string());
+    }
+    let timestamp = now();
+    let page = DocumentTranslationPage {
+        paper_id: paper_id.clone(),
+        target_language: target_language.clone(),
+        page_number,
+        source_text: source_text.clone(),
+        translation: translation.clone(),
+        model: model.clone(),
+        created_at: timestamp.clone(),
+        updated_at: timestamp.clone(),
+    };
+    with_database(|connection| {
+        connection
+            .execute(
+                "INSERT INTO document_translation_pages(
+                    paper_id, target_language, page_number, source_text, translation,
+                    model, created_at, updated_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)
+                 ON CONFLICT(paper_id, target_language, page_number) DO UPDATE SET
+                    source_text=excluded.source_text,
+                    translation=excluded.translation,
+                    model=excluded.model,
+                    updated_at=excluded.updated_at",
+                params![
+                    paper_id,
+                    target_language,
+                    page_number,
+                    source_text,
+                    translation,
+                    model,
+                    timestamp
+                ],
+            )
+            .map_err(|error| format!("保存第 {page_number} 页译文失败：{error}"))?;
+        Ok(page.clone())
+    })
+}
+
+#[tauri::command]
+pub fn research_clear_document_translation(
+    paper_id: String,
+    target_language: String,
+) -> Result<usize, String> {
+    let paper_id = paper_id.trim();
+    let target_language = target_language.trim();
+    if paper_id.is_empty() || target_language.is_empty() {
+        return Err("论文 ID 和目标语言不能为空".to_string());
+    }
+    with_database(|connection| {
+        connection
+            .execute(
+                "DELETE FROM document_translation_pages
+                 WHERE paper_id = ?1 AND target_language = ?2",
+                params![paper_id, target_language],
+            )
+            .map_err(|error| error.to_string())
+    })
 }
 
 /// 批量写入 PDF.js 后台提取的全文，避免每页重复打开数据库。
@@ -4350,8 +4636,10 @@ mod tests {
             "annotations",
             "reading_progress",
             "document_outline",
+            "document_pages",
             "document_chunks",
             "document_chunks_fts",
+            "document_translation_pages",
             "embeddings",
             "translation_cache",
             "paper_insights",
@@ -4373,6 +4661,7 @@ mod tests {
             "idx_project_papers_project",
             "idx_project_papers_paper",
             "idx_document_outline_paper_page",
+            "idx_document_translation_pages_updated",
         ] {
             let exists: i64 = connection
                 .query_row(
@@ -5146,6 +5435,118 @@ mod tests {
         assert!(chunks
             .iter()
             .all(|chunk| chunk.content.chars().count() <= 1_200));
+    }
+
+    #[test]
+    fn page_index_persists_exact_full_text_for_document_translation() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        initialise_schema(&connection).unwrap();
+        insert_reference_test_paper(&connection, "paper-full-page", "Full Page", "");
+        let source = format!(
+            "INTRODUCTION\n\n{}\n\nCONCLUSION",
+            "学术翻译正文。".repeat(500)
+        );
+
+        let transaction = connection.transaction().unwrap();
+        let chunk_count = replace_page_chunks(&transaction, "paper-full-page", 3, &source).unwrap();
+        transaction.commit().unwrap();
+
+        assert!(chunk_count >= 2);
+        assert_eq!(
+            load_document_pages_on(&connection, "paper-full-page").unwrap(),
+            vec![DocumentTextPage {
+                page_number: 3,
+                text: source,
+            }]
+        );
+    }
+
+    #[test]
+    fn legacy_overlapping_chunks_reconstruct_and_backfill_the_complete_page() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialise_schema(&connection).unwrap();
+        insert_reference_test_paper(&connection, "paper-legacy-page", "Legacy Page", "");
+        connection
+            .execute(
+                "INSERT INTO document_chunks(
+                    paper_id, page_number, chunk_index, section_title, content
+                 ) VALUES
+                    ('paper-legacy-page', 2, 0, '', 'first OVERLAP-123456789'),
+                    ('paper-legacy-page', 2, 1, '', 'OVERLAP-123456789 second')",
+                [],
+            )
+            .unwrap();
+
+        let pages = load_document_pages_on(&connection, "paper-legacy-page").unwrap();
+        assert_eq!(pages[0].text, "first OVERLAP-123456789 second");
+        let persisted: String = connection
+            .query_row(
+                "SELECT content FROM document_pages
+                 WHERE paper_id = 'paper-legacy-page' AND page_number = 2",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(persisted, pages[0].text);
+    }
+
+    #[test]
+    fn document_translation_pages_update_per_language_and_cascade_with_paper() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialise_schema(&connection).unwrap();
+        insert_reference_test_paper(&connection, "paper-translation", "Translation", "");
+        connection
+            .execute(
+                "INSERT INTO document_translation_pages(
+                    paper_id, target_language, page_number, source_text, translation,
+                    model, created_at, updated_at
+                 ) VALUES ('paper-translation', 'zh_cn', 1, 'flux', '通量', 'gemma4:e4b', 't1', 't1')
+                 ON CONFLICT(paper_id, target_language, page_number) DO UPDATE SET
+                    source_text=excluded.source_text,
+                    translation=excluded.translation,
+                    model=excluded.model,
+                    updated_at=excluded.updated_at",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO document_translation_pages(
+                    paper_id, target_language, page_number, source_text, translation,
+                    model, created_at, updated_at
+                 ) VALUES ('paper-translation', 'zh_cn', 1, 'flux balance', '通量平衡', 'gemma4:e4b', 't2', 't2')
+                 ON CONFLICT(paper_id, target_language, page_number) DO UPDATE SET
+                    source_text=excluded.source_text,
+                    translation=excluded.translation,
+                    model=excluded.model,
+                    updated_at=excluded.updated_at",
+                [],
+            )
+            .unwrap();
+        let stored: (String, String, String) = connection
+            .query_row(
+                "SELECT source_text, translation, created_at FROM document_translation_pages
+                 WHERE paper_id = 'paper-translation' AND target_language = 'zh_cn' AND page_number = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            stored,
+            ("flux balance".into(), "通量平衡".into(), "t1".into())
+        );
+
+        connection
+            .execute("DELETE FROM papers WHERE id = 'paper-translation'", [])
+            .unwrap();
+        let remaining: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM document_translation_pages",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(remaining, 0);
     }
 
     #[test]

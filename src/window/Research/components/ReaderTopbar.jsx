@@ -10,6 +10,7 @@ import {
     PiSidebarSimple,
     PiSpeakerHigh,
     PiTextT,
+    PiTranslate,
 } from 'react-icons/pi';
 
 import { formatShortcutForPlatform, getPlatformPresentation } from '../../../utils/platform';
@@ -81,6 +82,8 @@ export default function ReaderTopbar({
     onInteractionModeChange,
     onSearch,
     translationStatus,
+    documentTranslationTask,
+    onDocumentTranslate,
     sidebarCollapsed = false,
     onSidebarToggle,
 }) {
@@ -241,6 +244,23 @@ export default function ReaderTopbar({
                         <PiMagnifyingGlass />
                     </button>
                 </form>
+                {onDocumentTranslate ? (
+                    <button
+                        className={`reader-document-translate ${documentTranslationTask?.status === 'translating' ? 'is-running' : ''}`}
+                        type='button'
+                        aria-label='全文翻译'
+                        title='逐页翻译全文并导出完整 PDF'
+                        onClick={onDocumentTranslate}
+                    >
+                        <PiTranslate aria-hidden='true' />
+                        <span>全文翻译</span>
+                        {documentTranslationTask?.totalPages > 0 ? (
+                            <small>
+                                {documentTranslationTask.completedPages}/{documentTranslationTask.totalPages}
+                            </small>
+                        ) : null}
+                    </button>
+                ) : null}
                 <div
                     className='reader-tool-mode'
                     role='group'

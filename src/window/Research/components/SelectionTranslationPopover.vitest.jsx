@@ -62,7 +62,7 @@ describe('论文划词翻译浮窗', () => {
         fireEvent.change(screen.getByRole('combobox', { name: '目标语言' }), { target: { value: 'en' } });
         fireEvent.click(screen.getByRole('button', { name: '复制' }));
         fireEvent.click(screen.getByRole('button', { name: '朗读' }));
-        fireEvent.click(screen.getByRole('button', { name: '高亮' }));
+        fireEvent.click(screen.getByRole('button', { name: '高亮存笔记' }));
         expect(screen.getByRole('group', { name: '选择高亮颜色' }).querySelectorAll('button')).toHaveLength(5);
         fireEvent.click(screen.getByRole('button', { name: '蓝色高亮' }));
         fireEvent.click(screen.getByRole('button', { name: '摘抄' }));

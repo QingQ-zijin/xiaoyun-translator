@@ -7,7 +7,7 @@ import { synthesizeSpeech } from '../translation';
 import { UNIFIED_OLLAMA_MODEL } from '../ollama/runtime';
 import { isTauriRuntime as isDesktopTauriRuntime, translateWithDesktopBackend } from '../translation/desktopTransport';
 import { resolveAcademicTargetLanguage } from '../translation/language';
-import { DEMO_ANNOTATIONS, DEMO_DOCUMENT, DEMO_PAPERS, DEMO_TAGS, DEMO_TRANSLATION } from './demoData';
+import { DEMO_ANNOTATIONS, DEMO_DOCUMENT, DEMO_PAGE, DEMO_PAPERS, DEMO_TAGS, DEMO_TRANSLATION } from './demoData';
 import { buildAiEvidence, RESEARCH_AI_INTENTS } from './model';
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -61,6 +61,7 @@ let demoPapers = clone(DEMO_PAPERS).map(normalizeDemoPaper);
 let demoTags = clone(DEMO_TAGS);
 let demoProjects = [];
 let demoAnnotations = clone(DEMO_ANNOTATIONS);
+let demoDocumentTranslations = [];
 
 const DEMO_INSIGHTS = Object.freeze({
     status: 'ready',
@@ -264,6 +265,18 @@ export async function choosePdfPaths(contentKind = 'paper') {
     });
     const paths = Array.isArray(selected) ? selected : selected ? [selected] : [];
     return [...new Set(paths.map(String).filter((path) => DOCUMENT_EXTENSION_PATTERN.test(path)))];
+}
+
+export async function chooseDocumentTranslationPath() {
+    if (!isTauriRuntime()) return null;
+    const selected = await openDialog({
+        title: '选择要完整翻译的文件',
+        multiple: false,
+        directory: false,
+        filters: [{ name: '支持的文档', extensions: [...DOCUMENT_EXTENSIONS] }],
+    });
+    const path = Array.isArray(selected) ? selected[0] : selected;
+    return path && DOCUMENT_EXTENSION_PATTERN.test(String(path)) ? String(path) : null;
 }
 
 export async function importPapers(paths, contentKind = 'paper') {
@@ -525,6 +538,87 @@ export async function indexDocumentPages(paperId, pages) {
         );
     }
     return indexedChunks;
+}
+
+export async function getIndexedDocumentPages(paperId) {
+    const safePaperId = String(paperId ?? '').trim();
+    if (!safePaperId) throw new Error('论文 ID 不能为空');
+    if (!isTauriRuntime()) {
+        const paper = demoPapers.find((item) => item.id === safePaperId);
+        const text = String(
+            paper?.textContent || `${DEMO_PAGE.before} ${DEMO_PAGE.selected} ${DEMO_PAGE.after}`
+        ).trim();
+        return text ? [{ pageNumber: 1, text }] : [];
+    }
+    return invokeResearch('research_get_document_pages', { paperId: safePaperId });
+}
+
+export async function listDocumentTranslationPages(paperId, targetLanguage = 'zh_cn') {
+    const safePaperId = String(paperId ?? '').trim();
+    const safeTargetLanguage = String(targetLanguage ?? '').trim();
+    if (!safePaperId || !safeTargetLanguage) throw new Error('论文 ID 和目标语言不能为空');
+    if (!isTauriRuntime()) {
+        return clone(
+            demoDocumentTranslations.filter(
+                (page) => page.paperId === safePaperId && page.targetLanguage === safeTargetLanguage
+            )
+        );
+    }
+    return invokeResearch('research_list_document_translation_pages', {
+        paperId: safePaperId,
+        targetLanguage: safeTargetLanguage,
+    });
+}
+
+export async function saveDocumentTranslationPage({
+    paperId,
+    targetLanguage = 'zh_cn',
+    pageNumber,
+    sourceText,
+    translation,
+    model = UNIFIED_OLLAMA_MODEL,
+}) {
+    const payload = {
+        paperId: String(paperId ?? '').trim(),
+        targetLanguage: String(targetLanguage ?? '').trim(),
+        pageNumber: Math.max(1, Number(pageNumber) || 1),
+        sourceText: String(sourceText ?? '').trim(),
+        translation: String(translation ?? '').trim(),
+        model: String(model ?? '').trim(),
+    };
+    if (!payload.paperId || !payload.targetLanguage || !payload.sourceText || !payload.translation) {
+        throw new Error('全文翻译页缺少必要内容');
+    }
+    if (!isTauriRuntime()) {
+        const timestamp = now();
+        const saved = { ...payload, createdAt: timestamp, updatedAt: timestamp };
+        const keyMatches = (page) =>
+            page.paperId === payload.paperId &&
+            page.targetLanguage === payload.targetLanguage &&
+            page.pageNumber === payload.pageNumber;
+        demoDocumentTranslations = demoDocumentTranslations.some(keyMatches)
+            ? demoDocumentTranslations.map((page) => (keyMatches(page) ? saved : page))
+            : [...demoDocumentTranslations, saved];
+        return clone(saved);
+    }
+    return invokeResearch('research_save_document_translation_page', payload);
+}
+
+export async function clearDocumentTranslation(paperId, targetLanguage = 'zh_cn') {
+    const safePaperId = String(paperId ?? '').trim();
+    const safeTargetLanguage = String(targetLanguage ?? '').trim();
+    if (!safePaperId || !safeTargetLanguage) throw new Error('论文 ID 和目标语言不能为空');
+    if (!isTauriRuntime()) {
+        const before = demoDocumentTranslations.length;
+        demoDocumentTranslations = demoDocumentTranslations.filter(
+            (page) => page.paperId !== safePaperId || page.targetLanguage !== safeTargetLanguage
+        );
+        return before - demoDocumentTranslations.length;
+    }
+    return invokeResearch('research_clear_document_translation', {
+        paperId: safePaperId,
+        targetLanguage: safeTargetLanguage,
+    });
 }
 
 export async function getPaperInsights(paperId) {

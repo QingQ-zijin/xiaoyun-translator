@@ -174,4 +174,39 @@ describe('论文笔记浮窗', () => {
             })
         );
     });
+
+    it('可以拖动标题栏移动笔记窗口，并限制在阅读工作区内', async () => {
+        render(
+            <AnnotationEditorPopover
+                open
+                selection={{ paperId: 'paper-1', pageNumber: 2, quote: 'selected sentence', rects: [] }}
+                anchorRect={{ left: 300, top: 180, right: 420, bottom: 202 }}
+                boundaryRect={{ left: 200, top: 100, right: 900, bottom: 700 }}
+                onSave={() => {}}
+                onClose={() => {}}
+            />
+        );
+
+        const dialog = screen.getByRole('dialog', { name: '添加论文笔记' });
+        await waitFor(() => expect(dialog.style.left).not.toBe(''));
+        const header = dialog.querySelector('.annotation-editor-popover__drag-handle');
+        const left = Number.parseFloat(dialog.style.left);
+        const top = Number.parseFloat(dialog.style.top);
+
+        fireEvent.pointerDown(header, {
+            button: 0,
+            pointerId: 9,
+            clientX: left + 20,
+            clientY: top + 12,
+        });
+        fireEvent.pointerMove(window, { pointerId: 9, clientX: -100, clientY: 900 });
+
+        await waitFor(() => {
+            expect(dialog.style.left).toBe('212px');
+            expect(dialog.style.top).toBe('348px');
+        });
+        expect(dialog.classList.contains('is-dragging')).toBe(true);
+        fireEvent.pointerUp(window, { pointerId: 9, clientX: -100, clientY: 900 });
+        await waitFor(() => expect(dialog.classList.contains('is-dragging')).toBe(false));
+    });
 });

@@ -33,6 +33,17 @@
     gap: 12px;
 }
 
+.annotation-editor-popover__drag-handle {
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+}
+
+.annotation-editor-popover.is-dragging,
+.annotation-editor-popover.is-dragging .annotation-editor-popover__drag-handle {
+    cursor: grabbing;
+}
+
 .annotation-editor-popover > header > div {
     min-width: 0;
     display: flex;

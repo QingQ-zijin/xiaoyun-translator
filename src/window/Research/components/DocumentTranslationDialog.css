@@ -1,0 +1,297 @@
+.document-translation-backdrop {
+    position: fixed;
+    z-index: 120;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 28px;
+    box-sizing: border-box;
+    background: rgba(23, 26, 36, 0.34);
+    backdrop-filter: blur(5px);
+}
+
+.document-translation-dialog {
+    width: min(720px, 100%);
+    max-width: 100%;
+    max-height: min(760px, calc(100vh - 56px));
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid rgba(224, 221, 239, 0.96);
+    border-radius: 18px;
+    background: #fff;
+    box-shadow: 0 30px 90px rgba(26, 25, 42, 0.23);
+}
+
+.document-translation-dialog > header,
+.document-translation-dialog > footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 22px;
+    border-color: #eceaf3;
+    background: #fff;
+}
+
+.document-translation-dialog > header {
+    border-bottom: 1px solid #eceaf3;
+}
+
+.document-translation-dialog > footer {
+    border-top: 1px solid #eceaf3;
+}
+
+.document-translation-dialog > header > button {
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: #747985;
+    cursor: pointer;
+}
+
+.document-translation-dialog > header > button:hover {
+    background: #f3f1fb;
+    color: #4f43ae;
+}
+
+.document-translation-dialog__title {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.document-translation-dialog__title > span {
+    width: 42px;
+    height: 42px;
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    border-radius: 12px;
+    background: linear-gradient(145deg, #eeeafd, #f7f5ff);
+    color: #735fe5;
+    font-size: 22px;
+}
+
+.document-translation-dialog__title > div {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.document-translation-dialog__title strong {
+    font-size: 17px;
+}
+
+.document-translation-dialog__title small {
+    overflow: hidden;
+    color: #7b7f8b;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.document-translation-dialog__body {
+    min-height: 0;
+    overflow: auto;
+    padding: 22px;
+    background: #fbfafc;
+}
+
+.document-translation-dialog__options {
+    display: grid;
+    grid-template-columns: minmax(170px, 0.8fr) minmax(300px, 1.4fr);
+    gap: 16px;
+}
+
+.document-translation-dialog__options > label,
+.document-translation-dialog__options fieldset {
+    min-width: 0;
+    margin: 0;
+    padding: 16px;
+    border: 1px solid #e7e4ef;
+    border-radius: 13px;
+    background: #fff;
+}
+
+.document-translation-dialog__options > label {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    color: #686d79;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.document-translation-dialog__options select {
+    height: 40px;
+    padding: 0 10px;
+    border: 1px solid #dfdce9;
+    border-radius: 9px;
+    outline: none;
+    background: #fff;
+}
+
+.document-translation-dialog__options select:focus-visible {
+    border-color: #7765e8;
+    box-shadow: 0 0 0 3px rgba(119, 101, 232, 0.13);
+}
+
+.document-translation-dialog__options fieldset {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 9px;
+}
+
+.document-translation-dialog__options legend {
+    padding: 0 5px;
+    color: #686d79;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.document-translation-dialog__options fieldset label {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px;
+    border-radius: 9px;
+    cursor: pointer;
+}
+
+.document-translation-dialog__options fieldset label:has(input:checked) {
+    background: #f2efff;
+}
+
+.document-translation-dialog__options fieldset input {
+    margin-top: 3px;
+    accent-color: #735fe5;
+}
+
+.document-translation-dialog__options fieldset span {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.document-translation-dialog__options fieldset small {
+    color: #7c818c;
+    line-height: 1.45;
+}
+
+.document-translation-progress {
+    margin-top: 16px;
+    padding: 18px;
+    border: 1px solid #e4e0f2;
+    border-radius: 14px;
+    background: linear-gradient(145deg, #fff, #faf8ff);
+}
+
+.document-translation-progress > div:first-child {
+    display: flex;
+    justify-content: space-between;
+    gap: 18px;
+}
+
+.document-translation-progress > div:first-child span {
+    color: #6e64b1;
+    font-variant-numeric: tabular-nums;
+}
+
+.document-translation-progress progress {
+    width: 100%;
+    height: 8px;
+    margin: 14px 0 6px;
+    overflow: hidden;
+    border: 0;
+    border-radius: 999px;
+    accent-color: #7765e8;
+}
+
+.document-translation-progress p {
+    margin: 6px 0 0;
+    color: #777c88;
+    font-size: 12px;
+}
+
+.document-translation-progress blockquote {
+    max-height: 150px;
+    margin: 14px 0 0;
+    overflow: auto;
+    padding: 12px 14px;
+    border-left: 3px solid #8a78ee;
+    border-radius: 0 9px 9px 0;
+    background: #f5f2ff;
+    color: #565b67;
+    font-size: 12px;
+    white-space: pre-wrap;
+}
+
+.document-translation-dialog__error {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border: 1px solid #f1c5c8;
+    border-radius: 9px;
+    background: #fff5f5;
+    color: #c24d55;
+}
+
+.document-translation-dialog > footer > div {
+    display: flex;
+    gap: 9px;
+}
+
+.document-translation-dialog > footer button {
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 0 15px;
+    border-radius: 10px;
+    cursor: pointer;
+}
+
+.document-translation-dialog__secondary {
+    border: 1px solid #ddd9e9;
+    background: #fff;
+    color: #5c606c;
+}
+
+.document-translation-dialog__primary {
+    border: 1px solid #6e59df;
+    background: #7765e8;
+    color: #fff !important;
+    box-shadow: 0 7px 18px rgba(104, 84, 218, 0.22);
+}
+
+.document-translation-dialog > footer button:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+@media (max-width: 760px) {
+    .document-translation-backdrop {
+        padding: 12px;
+    }
+
+    .document-translation-dialog {
+        width: 100%;
+        max-height: calc(100vh - 24px);
+    }
+
+    .document-translation-dialog__options {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .document-translation-backdrop {
+        backdrop-filter: none;
+    }
+}

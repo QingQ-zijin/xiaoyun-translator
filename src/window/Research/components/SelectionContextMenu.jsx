@@ -136,7 +136,7 @@ export default function SelectionContextMenu({
                 onClick={() => setHighlightOpen((current) => !current)}
             >
                 <PiHighlighter aria-hidden='true' />
-                <span>仅高亮</span>
+                <span>高亮并保存译文</span>
             </button>
             {highlightOpen ? (
                 <div id='selection-context-highlight-colors'>

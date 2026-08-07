@@ -98,6 +98,7 @@ fn main() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .on_window_event(|window, event| {
@@ -193,6 +194,10 @@ fn main() {
             research_delete_annotation,
             research_index_page,
             research_index_pages,
+            research_get_document_pages,
+            research_list_document_translation_pages,
+            research_save_document_translation_page,
+            research_clear_document_translation,
             research_search,
             research_sync_paper_references,
             research_list_paper_relations,

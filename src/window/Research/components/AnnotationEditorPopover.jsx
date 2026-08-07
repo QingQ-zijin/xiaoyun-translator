@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { PiCheck, PiTag, PiTrash, PiX } from 'react-icons/pi';
 
 import { normalizeAnnotationTags } from '../../../domains/research/model';
-import { computeFloatingPosition } from '../floatingPosition';
+import { clampFloatingPosition, computeFloatingPosition } from '../floatingPosition';
 import { AnnotationColorPicker } from './annotationColors';
 import './selectionOverlays.css';
 
@@ -18,7 +18,11 @@ export default function AnnotationEditorPopover({
 }) {
     const panelRef = useRef(null);
     const onCloseRef = useRef(onClose);
+    const positionRef = useRef(null);
+    const dragRef = useRef(null);
     const [position, setPosition] = useState(null);
+    const [userPositioned, setUserPositioned] = useState(false);
+    const [dragging, setDragging] = useState(false);
     const [note, setNote] = useState('');
     const [tagText, setTagText] = useState('');
     const [color, setColor] = useState('violet');
@@ -39,6 +43,10 @@ export default function AnnotationEditorPopover({
           : '添加论文笔记';
 
     useEffect(() => {
+        positionRef.current = position;
+    }, [position]);
+
+    useEffect(() => {
         onCloseRef.current = onClose;
     }, [onClose]);
 
@@ -49,6 +57,9 @@ export default function AnnotationEditorPopover({
         setColor(selection?.color ?? 'violet');
         setSaving(false);
         setError('');
+        dragRef.current = null;
+        setUserPositioned(false);
+        setDragging(false);
     }, [open, selection?.id, selection?.updatedAt]);
 
     useEffect(() => {
@@ -64,21 +75,36 @@ export default function AnnotationEditorPopover({
             const measured = panelRef.current?.getBoundingClientRect?.();
             const viewportWidth = globalThis.innerWidth;
             const viewportHeight = globalThis.innerHeight;
+            const floatingSize = { width: measured?.width || 390, height: measured?.height || 340 };
             const resolvedAnchor = anchorRect ?? {
                 left: viewportWidth / 2,
                 right: viewportWidth / 2,
                 top: viewportHeight / 2,
                 bottom: viewportHeight / 2,
             };
-            setPosition(
-                computeFloatingPosition({
-                    anchorRect: resolvedAnchor,
-                    floatingSize: { width: measured?.width || 390, height: measured?.height || 340 },
-                    viewportWidth,
-                    viewportHeight,
-                    boundaryRect,
-                })
-            );
+            const current = positionRef.current;
+            const next =
+                userPositioned && current
+                    ? {
+                          ...clampFloatingPosition({
+                              left: current.left,
+                              top: current.top,
+                              floatingSize,
+                              viewportWidth,
+                              viewportHeight,
+                              boundaryRect,
+                          }),
+                          placement: 'manual',
+                      }
+                    : computeFloatingPosition({
+                          anchorRect: resolvedAnchor,
+                          floatingSize,
+                          viewportWidth,
+                          viewportHeight,
+                          boundaryRect,
+                      });
+            positionRef.current = next;
+            setPosition(next);
         };
         update();
         const observer = globalThis.ResizeObserver ? new ResizeObserver(update) : null;
@@ -88,7 +114,67 @@ export default function AnnotationEditorPopover({
             observer?.disconnect();
             globalThis.removeEventListener?.('resize', update);
         };
-    }, [anchorRect, boundaryRect, open]);
+    }, [anchorRect, boundaryRect, open, userPositioned]);
+
+    useEffect(() => {
+        if (!dragging) return undefined;
+        const handlePointerMove = (event) => {
+            const drag = dragRef.current;
+            if (!drag || event.pointerId !== drag.pointerId) return;
+            event.preventDefault?.();
+            const next = {
+                ...clampFloatingPosition({
+                    left: event.clientX - drag.offsetX,
+                    top: event.clientY - drag.offsetY,
+                    floatingSize: { width: drag.width, height: drag.height },
+                    viewportWidth: globalThis.innerWidth,
+                    viewportHeight: globalThis.innerHeight,
+                    boundaryRect,
+                }),
+                placement: 'manual',
+            };
+            positionRef.current = next;
+            setPosition(next);
+        };
+        const finishDrag = (event) => {
+            const drag = dragRef.current;
+            if (!drag || event.pointerId !== drag.pointerId) return;
+            try {
+                drag.captureTarget?.releasePointerCapture?.(drag.pointerId);
+            } catch {
+                // 指针已释放时无需处理。
+            }
+            dragRef.current = null;
+            setDragging(false);
+        };
+        globalThis.addEventListener?.('pointermove', handlePointerMove);
+        globalThis.addEventListener?.('pointerup', finishDrag);
+        globalThis.addEventListener?.('pointercancel', finishDrag);
+        return () => {
+            globalThis.removeEventListener?.('pointermove', handlePointerMove);
+            globalThis.removeEventListener?.('pointerup', finishDrag);
+            globalThis.removeEventListener?.('pointercancel', finishDrag);
+        };
+    }, [boundaryRect, dragging]);
+
+    const handleHeaderPointerDown = (event) => {
+        if (event.button !== 0 || event.target.closest?.('button, input, textarea, select, option')) return;
+        const measured = panelRef.current?.getBoundingClientRect?.();
+        const current = positionRef.current;
+        if (!measured || !current) return;
+        event.preventDefault();
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+        dragRef.current = {
+            pointerId: event.pointerId,
+            offsetX: event.clientX - current.left,
+            offsetY: event.clientY - current.top,
+            width: measured.width || 390,
+            height: measured.height || 340,
+            captureTarget: event.currentTarget,
+        };
+        setUserPositioned(true);
+        setDragging(true);
+    };
 
     if (!open || !selection) return null;
 
@@ -137,7 +223,7 @@ export default function AnnotationEditorPopover({
     return (
         <form
             ref={panelRef}
-            className='annotation-editor-popover'
+            className={`annotation-editor-popover ${dragging ? 'is-dragging' : ''}`}
             style={
                 position
                     ? {
@@ -152,7 +238,11 @@ export default function AnnotationEditorPopover({
             role='dialog'
             aria-label={dialogLabel}
         >
-            <header>
+            <header
+                className='annotation-editor-popover__drag-handle'
+                onPointerDown={handleHeaderPointerDown}
+                title='拖动以移动笔记窗口'
+            >
                 <div>
                     <strong>
                         {isTextAnnotation

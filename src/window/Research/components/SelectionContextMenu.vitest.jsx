@@ -25,7 +25,7 @@ describe('论文选区右键菜单', () => {
         );
 
         fireEvent.click(screen.getByRole('menuitem', { name: '添加笔记' }));
-        fireEvent.click(screen.getByRole('menuitem', { name: '仅高亮' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: '高亮并保存译文' }));
         expect(screen.getByRole('group', { name: '选择高亮颜色' }).querySelectorAll('button')).toHaveLength(5);
         fireEvent.click(screen.getByRole('button', { name: '玫红色高亮' }));
         fireEvent.click(screen.getByRole('menuitem', { name: '摘抄句子' }));
@@ -71,7 +71,7 @@ describe('论文选区右键菜单', () => {
         );
 
         const note = screen.getByRole('menuitem', { name: '添加笔记' });
-        const highlight = screen.getByRole('menuitem', { name: '仅高亮' });
+        const highlight = screen.getByRole('menuitem', { name: '高亮并保存译文' });
         expect(document.activeElement).toBe(note);
         fireEvent.keyDown(window, { key: 'ArrowDown' });
         expect(document.activeElement).toBe(highlight);

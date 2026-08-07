@@ -876,7 +876,9 @@ pub fn main_window(route: Option<&str>) -> Result<WebviewWindow, String> {
             .title("小允翻译")
             .inner_size(1440.0, 920.0)
             .min_inner_size(1040.0, 680.0)
-            .decorations(true)
+            // 主窗口使用统一的应用内标题栏，确保 Windows/macOS/Linux 的版本号、
+            // 文件翻译入口和窗口控制保持同一套视觉与交互。
+            .decorations(false)
             .visible(false)
             .build()
             .map_err(|error| error.to_string())?

@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
     PiArrowsLeftRight,
     PiCheckCircle,
     PiCopy,
+    PiFilePdf,
     PiPaperPlaneRight,
     PiSpeakerHigh,
     PiSpinnerGap,
     PiTrash,
+    PiTextT,
     PiWarningCircle,
 } from 'react-icons/pi';
 
@@ -17,6 +19,8 @@ import { useVoice } from '../../hooks/useVoice';
 import { writeClipboardText } from '../../utils/clipboard';
 import { formatShortcutForPlatform } from '../../utils/platform';
 import FormattedTranslation from '../Translate/components/FormattedTranslation';
+
+const DocumentTranslationAgent = lazy(() => import('./DocumentTranslationAgent'));
 
 const INPUT_TRANSLATE_SHORTCUT = formatShortcutForPlatform('CommandOrControl+Enter');
 
@@ -120,8 +124,15 @@ export default function TranslationWorkspace({
     const [modelName, setModelName] = useState(UNIFIED_OLLAMA_MODEL);
     const [backendReady, setBackendReady] = useState(!desktop);
     const [backendChecking, setBackendChecking] = useState(desktop);
+    const [workspaceMode, setWorkspaceMode] = useState('text');
     const requestRef = useRef(null);
     const playVoice = useVoice();
+
+    useEffect(() => {
+        const openDocumentAgent = () => setWorkspaceMode('document');
+        globalThis.addEventListener?.('xiaoyun:open-document-translator', openDocumentAgent);
+        return () => globalThis.removeEventListener?.('xiaoyun:open-document-translator', openDocumentAgent);
+    }, []);
 
     useEffect(() => {
         const handleOllamaReady = () => {
@@ -264,9 +275,32 @@ export default function TranslationWorkspace({
     return (
         <section className='main-page main-page--translate'>
             <header className='main-page__header'>
-                <div>
+                <div className='main-page__heading'>
                     <h1>学术翻译</h1>
-                    <p>保留论文术语、Markdown 与 LaTeX，只输出译文。</p>
+                    <div
+                        className='translate-mode-switch'
+                        aria-label='翻译模式'
+                    >
+                        <button
+                            type='button'
+                            className={workspaceMode === 'text' ? 'is-active' : ''}
+                            aria-pressed={workspaceMode === 'text'}
+                            onClick={() => setWorkspaceMode('text')}
+                        >
+                            <PiTextT aria-hidden='true' />
+                            文本翻译
+                        </button>
+                        <button
+                            type='button'
+                            className={workspaceMode === 'document' ? 'is-active' : ''}
+                            aria-pressed={workspaceMode === 'document'}
+                            onClick={() => setWorkspaceMode('document')}
+                        >
+                            <PiFilePdf aria-hidden='true' />
+                            文档翻译
+                            <span>完整 PDF</span>
+                        </button>
+                    </div>
                 </div>
                 <WorkspaceStatus
                     state={state}
@@ -278,171 +312,187 @@ export default function TranslationWorkspace({
                 />
             </header>
 
-            <div className='translate-workspace'>
-                <div className='translate-workspace__toolbar'>
-                    <label>
-                        <span className='visually-hidden'>原文语言</span>
-                        <select
-                            value={sourceLanguage}
-                            onChange={(event) => setSourceLanguage(event.target.value)}
-                        >
-                            {LANGUAGE_OPTIONS.map((language) => (
-                                <option
-                                    key={language.value}
-                                    value={language.value}
-                                >
-                                    {language.label}
-                                </option>
-                            ))}
-                        </select>
-                    </label>
-                    <button
-                        className='translate-workspace__swap'
-                        type='button'
-                        onClick={swapLanguages}
-                        aria-label='交换翻译语言'
-                    >
-                        <PiArrowsLeftRight aria-hidden='true' />
-                    </button>
-                    <label>
-                        <span className='visually-hidden'>译文语言</span>
-                        <select
-                            value={targetLanguage}
-                            onChange={(event) => setTargetLanguage(event.target.value)}
-                        >
-                            {LANGUAGE_OPTIONS.filter((language) => language.value !== 'auto').map((language) => (
-                                <option
-                                    key={language.value}
-                                    value={language.value}
-                                >
-                                    {language.label}
-                                </option>
-                            ))}
-                        </select>
-                    </label>
-                    <span className='translate-workspace__model'>{modelName} · 本地 Ollama</span>
-                </div>
-
-                <div className='translate-workspace__columns'>
-                    <article className='translate-panel translate-panel--source'>
-                        <div className='translate-panel__heading'>
-                            <strong>原文</strong>
-                            <button
-                                type='button'
-                                onClick={clearAll}
-                                disabled={!sourceText && !result}
-                            >
-                                <PiTrash aria-hidden='true' />
-                                清空
-                            </button>
+            {workspaceMode === 'document' ? (
+                <Suspense
+                    fallback={
+                        <div className='document-agent__loading'>
+                            <PiSpinnerGap className='is-spinning' />
+                            正在加载文档 Agent…
                         </div>
-                        <textarea
-                            autoFocus
-                            value={sourceText}
-                            onChange={(event) => setSourceText(event.target.value)}
-                            onKeyDown={(event) => {
-                                if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-                                    event.preventDefault();
-                                    void runTranslation();
-                                }
-                            }}
-                            placeholder={`粘贴论文段落，按 ${INPUT_TRANSLATE_SHORTCUT} 开始翻译…`}
-                            spellCheck='false'
-                        />
-                        <span className='translate-panel__count'>{sourceText.length.toLocaleString()} 字符</span>
-                    </article>
+                    }
+                >
+                    <DocumentTranslationAgent
+                        modelName={modelName}
+                        desktop={desktop}
+                    />
+                </Suspense>
+            ) : (
+                <div className='translate-workspace'>
+                    <div className='translate-workspace__toolbar'>
+                        <label>
+                            <span className='visually-hidden'>原文语言</span>
+                            <select
+                                value={sourceLanguage}
+                                onChange={(event) => setSourceLanguage(event.target.value)}
+                            >
+                                {LANGUAGE_OPTIONS.map((language) => (
+                                    <option
+                                        key={language.value}
+                                        value={language.value}
+                                    >
+                                        {language.label}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                        <button
+                            className='translate-workspace__swap'
+                            type='button'
+                            onClick={swapLanguages}
+                            aria-label='交换翻译语言'
+                        >
+                            <PiArrowsLeftRight aria-hidden='true' />
+                        </button>
+                        <label>
+                            <span className='visually-hidden'>译文语言</span>
+                            <select
+                                value={targetLanguage}
+                                onChange={(event) => setTargetLanguage(event.target.value)}
+                            >
+                                {LANGUAGE_OPTIONS.filter((language) => language.value !== 'auto').map((language) => (
+                                    <option
+                                        key={language.value}
+                                        value={language.value}
+                                    >
+                                        {language.label}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                        <span className='translate-workspace__model'>{modelName} · 本地 Ollama</span>
+                    </div>
 
-                    <article
-                        className='translate-panel translate-panel--result'
-                        aria-live='polite'
-                    >
-                        <div className='translate-panel__heading'>
-                            <strong>译文</strong>
-                            <div>
+                    <div className='translate-workspace__columns'>
+                        <article className='translate-panel translate-panel--source'>
+                            <div className='translate-panel__heading'>
+                                <strong>原文</strong>
                                 <button
                                     type='button'
-                                    onClick={speakResult}
-                                    disabled={!result}
+                                    onClick={clearAll}
+                                    disabled={!sourceText && !result}
                                 >
-                                    <PiSpeakerHigh aria-hidden='true' />
-                                    朗读
-                                </button>
-                                <button
-                                    type='button'
-                                    onClick={copyResult}
-                                    disabled={!result}
-                                >
-                                    <PiCopy aria-hidden='true' />
-                                    {copyState}
+                                    <PiTrash aria-hidden='true' />
+                                    清空
                                 </button>
                             </div>
-                        </div>
-                        <div className={`translate-panel__output ${!result ? 'is-empty' : ''}`}>
-                            {result ? (
-                                <FormattedTranslation
-                                    value={result}
-                                    fontSize={17}
+                            <textarea
+                                autoFocus
+                                value={sourceText}
+                                onChange={(event) => setSourceText(event.target.value)}
+                                onKeyDown={(event) => {
+                                    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+                                        event.preventDefault();
+                                        void runTranslation();
+                                    }
+                                }}
+                                placeholder={`粘贴论文段落，按 ${INPUT_TRANSLATE_SHORTCUT} 开始翻译…`}
+                                spellCheck='false'
+                            />
+                            <span className='translate-panel__count'>{sourceText.length.toLocaleString()} 字符</span>
+                        </article>
+
+                        <article
+                            className='translate-panel translate-panel--result'
+                            aria-live='polite'
+                        >
+                            <div className='translate-panel__heading'>
+                                <strong>译文</strong>
+                                <div>
+                                    <button
+                                        type='button'
+                                        onClick={speakResult}
+                                        disabled={!result}
+                                    >
+                                        <PiSpeakerHigh aria-hidden='true' />
+                                        朗读
+                                    </button>
+                                    <button
+                                        type='button'
+                                        onClick={copyResult}
+                                        disabled={!result}
+                                    >
+                                        <PiCopy aria-hidden='true' />
+                                        {copyState}
+                                    </button>
+                                </div>
+                            </div>
+                            <div className={`translate-panel__output ${!result ? 'is-empty' : ''}`}>
+                                {result ? (
+                                    <FormattedTranslation
+                                        value={result}
+                                        fontSize={17}
+                                    />
+                                ) : (
+                                    <div className='translate-panel__placeholder'>
+                                        <PiTranslatePlaceholder />
+                                        <p>译文会在模型生成时实时出现</p>
+                                        <span>变量、公式、引文与数字将按原格式保留</span>
+                                    </div>
+                                )}
+                            </div>
+                            {error ? <p className='translate-panel__error'>{error}</p> : null}
+                        </article>
+                    </div>
+
+                    <div className='translate-workspace__footer'>
+                        <details>
+                            <summary>添加论文上下文以改善术语消歧</summary>
+                            <div className='translate-context'>
+                                <label>
+                                    <span>论文标题</span>
+                                    <input
+                                        value={paperTitle}
+                                        onChange={(event) => setPaperTitle(event.target.value)}
+                                        placeholder='选填，只用于消歧'
+                                    />
+                                </label>
+                                <label>
+                                    <span>选区前文</span>
+                                    <input
+                                        value={contextBefore}
+                                        onChange={(event) => setContextBefore(event.target.value)}
+                                        placeholder='不会被翻译'
+                                    />
+                                </label>
+                                <label>
+                                    <span>选区后文</span>
+                                    <input
+                                        value={contextAfter}
+                                        onChange={(event) => setContextAfter(event.target.value)}
+                                        placeholder='不会被翻译'
+                                    />
+                                </label>
+                            </div>
+                        </details>
+                        <button
+                            className='main-primary-button'
+                            type='button'
+                            onClick={runTranslation}
+                            disabled={state === 'translating' || !sourceText.trim()}
+                        >
+                            {state === 'translating' ? (
+                                <PiSpinnerGap
+                                    className='is-spinning'
+                                    aria-hidden='true'
                                 />
                             ) : (
-                                <div className='translate-panel__placeholder'>
-                                    <PiTranslatePlaceholder />
-                                    <p>译文会在模型生成时实时出现</p>
-                                    <span>变量、公式、引文与数字将按原格式保留</span>
-                                </div>
+                                <PiPaperPlaneRight aria-hidden='true' />
                             )}
-                        </div>
-                        {error ? <p className='translate-panel__error'>{error}</p> : null}
-                    </article>
+                            {state === 'translating' ? '正在翻译' : backendReady ? '开始翻译' : '启动并翻译'}
+                        </button>
+                    </div>
                 </div>
-
-                <div className='translate-workspace__footer'>
-                    <details>
-                        <summary>添加论文上下文以改善术语消歧</summary>
-                        <div className='translate-context'>
-                            <label>
-                                <span>论文标题</span>
-                                <input
-                                    value={paperTitle}
-                                    onChange={(event) => setPaperTitle(event.target.value)}
-                                    placeholder='选填，只用于消歧'
-                                />
-                            </label>
-                            <label>
-                                <span>选区前文</span>
-                                <input
-                                    value={contextBefore}
-                                    onChange={(event) => setContextBefore(event.target.value)}
-                                    placeholder='不会被翻译'
-                                />
-                            </label>
-                            <label>
-                                <span>选区后文</span>
-                                <input
-                                    value={contextAfter}
-                                    onChange={(event) => setContextAfter(event.target.value)}
-                                    placeholder='不会被翻译'
-                                />
-                            </label>
-                        </div>
-                    </details>
-                    <button
-                        className='main-primary-button'
-                        type='button'
-                        onClick={runTranslation}
-                        disabled={state === 'translating' || !sourceText.trim()}
-                    >
-                        {state === 'translating' ? (
-                            <PiSpinnerGap
-                                className='is-spinning'
-                                aria-hidden='true'
-                            />
-                        ) : (
-                            <PiPaperPlaneRight aria-hidden='true' />
-                        )}
-                        {state === 'translating' ? '正在翻译' : backendReady ? '开始翻译' : '启动并翻译'}
-                    </button>
-                </div>
-            </div>
+            )}
         </section>
     );
 }
