@@ -111,11 +111,15 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SelectionError {
     Cancelled,
+    #[cfg(target_os = "windows")]
     TimedOut,
     NoSelection,
     WorkerUnavailable(String),
+    #[cfg(target_os = "windows")]
     Automation(String),
+    #[cfg(target_os = "windows")]
     Clipboard(String),
+    #[cfg(target_os = "windows")]
     Input(String),
 }
 
@@ -123,11 +127,15 @@ impl fmt::Display for SelectionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Cancelled => formatter.write_str("取词请求已取消"),
+            #[cfg(target_os = "windows")]
             Self::TimedOut => formatter.write_str("取词超时，请重新选择文字"),
             Self::NoSelection => formatter.write_str("未读取到选中的文字"),
             Self::WorkerUnavailable(message) => write!(formatter, "取词服务不可用：{message}"),
+            #[cfg(target_os = "windows")]
             Self::Automation(message) => write!(formatter, "UI Automation 取词失败：{message}"),
+            #[cfg(target_os = "windows")]
             Self::Clipboard(message) => write!(formatter, "剪贴板取词失败：{message}"),
+            #[cfg(target_os = "windows")]
             Self::Input(message) => write!(formatter, "模拟复制失败：{message}"),
         }
     }
@@ -182,6 +190,7 @@ fn finish_platform_capture(
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod cross_platform_tests {
     use super::{finish_platform_capture, SelectionError};
 

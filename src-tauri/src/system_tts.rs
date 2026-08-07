@@ -743,34 +743,28 @@ fn installed_system_voices() -> Result<Vec<SystemVoice>, Box<dyn std::error::Err
 #[tauri::command(async)]
 pub async fn list_system_voices() -> Result<Vec<SystemVoice>, String> {
     #[cfg(windows)]
-    {
-        return tauri::async_runtime::spawn_blocking(installed_system_voices)
-            .await
-            .map_err(|_| "无法读取 Windows 声音列表".to_string())?
-            .map_err(|error| {
-                log::warn!("Unable to enumerate system voices: {error}");
-                "无法读取 Windows 声音列表".to_string()
-            });
-    }
+    let result = tauri::async_runtime::spawn_blocking(installed_system_voices)
+        .await
+        .map_err(|_| "无法读取 Windows 声音列表".to_string())?
+        .map_err(|error| {
+            log::warn!("Unable to enumerate system voices: {error}");
+            "无法读取 Windows 声音列表".to_string()
+        });
 
     #[cfg(target_os = "macos")]
-    {
-        return tauri::async_runtime::spawn_blocking(installed_macos_voices)
-            .await
-            .map_err(|_| "无法读取 macOS 声音列表".to_string())?;
-    }
+    let result = tauri::async_runtime::spawn_blocking(installed_macos_voices)
+        .await
+        .map_err(|_| "无法读取 macOS 声音列表".to_string())?;
 
     #[cfg(target_os = "linux")]
-    {
-        return tauri::async_runtime::spawn_blocking(installed_linux_voices)
-            .await
-            .map_err(|_| "无法读取 Linux 声音列表".to_string())?;
-    }
+    let result = tauri::async_runtime::spawn_blocking(installed_linux_voices)
+        .await
+        .map_err(|_| "无法读取 Linux 声音列表".to_string())?;
 
     #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
-    {
-        Ok(Vec::new())
-    }
+    let result = Ok(Vec::new());
+
+    result
 }
 
 #[cfg(test)]

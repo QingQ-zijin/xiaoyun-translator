@@ -208,12 +208,10 @@ fn translate_window() -> Result<WebviewWindow, String> {
     let (mouse_x, mouse_y) = mouse_position();
     let monitor = current_monitor(mouse_x, mouse_y);
     let monitor_position = monitor.as_ref().map(Monitor::position);
-    let mut builder =
+    let builder =
         WebviewWindowBuilder::new(&app, "translate", WebviewUrl::App("index.html".into()));
     #[cfg(target_os = "windows")]
-    {
-        builder = builder.transparent(true);
-    }
+    let builder = builder.transparent(true);
     let mut builder = builder
         .title("小允翻译")
         .visible(false)
@@ -356,12 +354,14 @@ fn show_without_activating(window: &WebviewWindow) {
     }
 }
 
+#[cfg(any(target_os = "windows", test))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct TranslateForegroundPlan {
     promote_to_topmost: bool,
     restore_topmost_after_activation: bool,
 }
 
+#[cfg(any(target_os = "windows", test))]
 fn translate_foreground_plan(was_topmost: bool) -> TranslateForegroundPlan {
     TranslateForegroundPlan {
         promote_to_topmost: !was_topmost,
@@ -957,12 +957,10 @@ async fn screenshot_window(generation: u64) -> Result<Option<WebviewWindow>, Str
     }
     let (mouse_x, mouse_y) = mouse_position();
     let monitor_position = current_monitor(mouse_x, mouse_y).map(|monitor| *monitor.position());
-    let mut builder =
+    let builder =
         WebviewWindowBuilder::new(&app, "screenshot", WebviewUrl::App("index.html".into()));
     #[cfg(target_os = "windows")]
-    {
-        builder = builder.transparent(true);
-    }
+    let builder = builder.transparent(true);
     let mut builder = builder
         .title("小允翻译 - 截图")
         .decorations(false)
