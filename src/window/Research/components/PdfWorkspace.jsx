@@ -380,6 +380,7 @@ const PdfWorkspace = forwardRef(function PdfWorkspace(
         onReferencePages,
         onSelection,
         onSelectionContextMenu,
+        onImageContextMenu,
         onTextInsert,
         onAnnotationActivate,
         onAnnotationDelete,
@@ -1517,19 +1518,37 @@ const PdfWorkspace = forwardRef(function PdfWorkspace(
     }, [cancelSelectionForPointer]);
 
     const handleContextMenu = (event) => {
-        if (!activeSelection?.quote || !event.target.closest?.('[data-pdf-selection-layer]')) return;
-        event.preventDefault();
         const boundary = scrollRef.current?.getBoundingClientRect();
-        const browserSelection = window.getSelection();
-        const selectedRange = browserSelection?.rangeCount === 1 ? browserSelection.getRangeAt(0) : null;
-        const selectionRect = selectedRange ? mergeClientRects(selectedRange.getClientRects()) : null;
-        onSelectionContextMenu?.({
+        const boundaryRect = boundary
+            ? { left: boundary.left, right: boundary.right, top: boundary.top, bottom: boundary.bottom }
+            : undefined;
+        if (activeSelection?.quote && event.target.closest?.('[data-pdf-selection-layer]')) {
+            event.preventDefault();
+            const browserSelection = window.getSelection();
+            const selectedRange = browserSelection?.rangeCount === 1 ? browserSelection.getRangeAt(0) : null;
+            const selectionRect = selectedRange ? mergeClientRects(selectedRange.getClientRects()) : null;
+            onSelectionContextMenu?.({
+                clientX: event.clientX,
+                clientY: event.clientY,
+                selectionRect,
+                boundaryRect,
+            });
+            return;
+        }
+        const pageElement = event.target.closest?.('[data-page-number]');
+        if (!pageElement || textMode || !onImageContextMenu) return;
+        const pageNumber = Number(pageElement.dataset.pageNumber);
+        if (!(pageNumber > 0)) return;
+        event.preventDefault();
+        const pageRect = pageElement.getBoundingClientRect();
+        onImageContextMenu({
             clientX: event.clientX,
             clientY: event.clientY,
-            selectionRect,
-            boundaryRect: boundary
-                ? { left: boundary.left, right: boundary.right, top: boundary.top, bottom: boundary.bottom }
-                : undefined,
+            boundaryRect,
+            pageNumber,
+            pageText: pageTextRef.current.get(pageNumber) ?? '',
+            focusX: Math.min(1, Math.max(0, (event.clientX - pageRect.left) / Math.max(1, pageRect.width))),
+            focusY: Math.min(1, Math.max(0, (event.clientY - pageRect.top) / Math.max(1, pageRect.height))),
         });
     };
 

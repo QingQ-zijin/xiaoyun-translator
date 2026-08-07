@@ -2,12 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PiSpeakerHigh } from 'react-icons/pi';
 
 import {
+    analyzePaperFigure,
     authorizeEmbeddingInstall,
     askPaper,
     cancelResearchJob,
     choosePdfPaths,
     defineTerm,
     deleteAnnotation,
+    deleteGlossaryEntry,
     enqueueOcrPage,
     getDocument,
     generateChapterInsights,
@@ -20,12 +22,14 @@ import {
     isTauriRuntime,
     listAnnotations,
     listChapterInsights,
+    listGlossary,
     listPendingPaperInsights,
     listPaperRelations,
     pauseResearchJob,
     rebuildDocumentOutline,
     replaceDocumentOutline,
     saveAnnotation,
+    saveGlossaryEntry,
     saveReadingProgress,
     speakText,
     startEmbeddingIndex,
@@ -66,6 +70,7 @@ import PaperLibrary from './components/PaperLibrary';
 import PdfWorkspace from './components/PdfWorkspace';
 import ReaderTopbar, { getOllamaModelDisplayName, getTranslationStatusPresentation } from './components/ReaderTopbar';
 import SelectionContextMenu from './components/SelectionContextMenu';
+import FigureAnalysisPopover from './components/FigureAnalysisPopover';
 import SelectionTranslationPopover from './components/SelectionTranslationPopover';
 import { useDocumentTranslationTask } from './hooks/useDocumentTranslationTask';
 import { useResearchLibrary } from './hooks/useResearchLibrary';
@@ -142,6 +147,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
     const runSpeechRequest = useSpeechRequest();
     const pdfRef = useRef(null);
     const aiAbortRef = useRef(null);
+    const figureAnalysisAbortRef = useRef(null);
     const translationRequestRef = useRef({ id: 0, controller: null, promise: null });
     const startWithDemo = !startInLibrary && !isTauriRuntime();
     const [paperId, setPaperId] = useState(() => (startWithDemo ? 'demo-memory' : ''));
@@ -149,6 +155,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
     const [document, setDocument] = useState(null);
     const [documentError, setDocumentError] = useState('');
     const [annotations, setAnnotations] = useState([]);
+    const [glossaryEntries, setGlossaryEntries] = useState([]);
     const [currentPage, setCurrentPage] = useState(1);
     const [pageCount, setPageCount] = useState(1);
     const [scale, setScale] = useState(1.25);
@@ -192,6 +199,16 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
     });
     const [selectionOverlay, setSelectionOverlay] = useState(null);
     const [selectionMenu, setSelectionMenu] = useState(null);
+    const [figureAnalysis, setFigureAnalysis] = useState({
+        open: false,
+        loading: false,
+        point: null,
+        boundaryRect: null,
+        pageNumber: 0,
+        value: '',
+        model: '',
+        error: '',
+    });
     const [noteEditorOpen, setNoteEditorOpen] = useState(false);
     const [noteEditorTarget, setNoteEditorTarget] = useState(null);
     const [noteEditorPlacement, setNoteEditorPlacement] = useState(null);
@@ -342,6 +359,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
         if (!paperId) {
             setDocument(null);
             setAnnotations([]);
+            setGlossaryEntries([]);
             setRelations({ outbound: [], inbound: [] });
             setNoteEditorOpen(false);
             setNoteEditorTarget(null);
@@ -360,15 +378,17 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
         Promise.all([
             getDocument(paperId),
             listAnnotations(paperId),
+            listGlossary({ paperId }),
             listPaperRelations(paperId),
             getPaperInsights(paperId).catch((reason) => ({ status: 'failed', error: String(reason) })),
             listChapterInsights(paperId).catch(() => []),
         ])
-            .then(([nextDocument, nextAnnotations, nextRelations, nextInsights, nextChapterInsights]) => {
+            .then(([nextDocument, nextAnnotations, nextGlossary, nextRelations, nextInsights, nextChapterInsights]) => {
                 if (cancelled) return;
                 setDocument(nextDocument);
                 persistedOutlineRef.current.set(nextDocument.paper.id, JSON.stringify(nextDocument.outline ?? []));
                 setAnnotations(nextAnnotations ?? []);
+                setGlossaryEntries(nextGlossary ?? []);
                 setRelations(nextRelations ?? { outbound: [], inbound: [] });
                 setInsights(
                     nextInsights?.status === 'not_started'
@@ -1021,10 +1041,131 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
             translation: translation.text,
             lexicon,
         });
+        if (selectionKind === 'vocabulary' && document?.paper?.id) {
+            const senses = Array.isArray(lexicon?.senses)
+                ? lexicon.senses
+                      .map((sense) => [sense?.partOfSpeech, sense?.meaning].filter(Boolean).join('：'))
+                      .filter(Boolean)
+                : [];
+            const entry = await saveGlossaryEntry({
+                paperId: document.paper.id,
+                term: selection.quote,
+                translation: String(translation.text || lexicon?.contextMeaning || '').trim(),
+                definition: String(
+                    lexicon?.contextMeaning || senses.join('\n') || lexicon?.domainNote || '来自论文划词摘录'
+                ).trim(),
+                context: [selection.prefix, selection.quote, selection.suffix].filter(Boolean).join(' '),
+                sourceQuote: selection.quote,
+                pageNumber: selection.pageNumber,
+                sourceType: 'selection',
+            });
+            setGlossaryEntries((current) => [entry, ...current.filter((item) => item.id !== entry.id)]);
+        }
         setToastNotice(
-            createResearchToast(selectionKind === 'vocabulary' ? '单词已摘抄到论文记录' : '句子已摘抄到论文记录')
+            createResearchToast(selectionKind === 'vocabulary' ? '单词已保存到词库与论文记录' : '句子已摘抄到论文记录')
         );
-    }, [handleSaveAnnotation, lexiconState.entry, selection, selectionKind, targetLanguage, translation.text]);
+    }, [
+        document?.paper?.id,
+        handleSaveAnnotation,
+        lexiconState.entry,
+        selection,
+        selectionKind,
+        targetLanguage,
+        translation.text,
+    ]);
+
+    const handleAddGlossaryTerm = useCallback(
+        async (item) => {
+            if (!document?.paper?.id || !item?.term) return null;
+            const entry = await saveGlossaryEntry({
+                paperId: document.paper.id,
+                term: item.term,
+                translation: item.translation ?? '',
+                definition: item.annotation ?? '',
+                context: insightsRef.current?.payload?.summary ?? insightsRef.current?.summary ?? '',
+                sourceQuote: item.term,
+                pageNumber: item.pageNumbers?.[0] ?? 1,
+                sourceType: 'insight',
+            });
+            setGlossaryEntries((current) => [entry, ...current.filter((existing) => existing.id !== entry.id)]);
+            setToastNotice(createResearchToast(`“${entry.term}”已加入论文词库`));
+            return entry;
+        },
+        [document?.paper?.id]
+    );
+
+    const handleDeleteGlossaryEntry = useCallback(async (entry) => {
+        const entryId = typeof entry === 'string' ? entry : entry?.id;
+        if (!entryId) return;
+        await deleteGlossaryEntry(entryId);
+        setGlossaryEntries((current) => current.filter((item) => item.id !== entryId));
+        setToastNotice(createResearchToast('已从词库移除'));
+    }, []);
+
+    const closeFigureAnalysis = useCallback(() => {
+        figureAnalysisAbortRef.current?.abort();
+        figureAnalysisAbortRef.current = null;
+        setFigureAnalysis((current) => ({ ...current, open: false, loading: false }));
+    }, []);
+
+    const handleFigureContextMenu = useCallback(
+        async ({ clientX, clientY, boundaryRect, pageNumber, pageText, focusX, focusY }) => {
+            if (!document?.paper?.id || !pageNumber) return;
+            figureAnalysisAbortRef.current?.abort();
+            const controller = new AbortController();
+            figureAnalysisAbortRef.current = controller;
+            aiAbortRef.current?.abort();
+            cancelSpeechRequest();
+            invalidateSelectionTranslation();
+            setSelection(null);
+            setSelectionOverlay(null);
+            setSelectionMenu(null);
+            setTranslation({ status: 'idle', loading: false, text: '', error: '' });
+            setLexiconState({ loading: false, entry: null, error: '' });
+            setFigureAnalysis({
+                open: true,
+                loading: true,
+                point: { x: clientX, y: clientY },
+                boundaryRect,
+                pageNumber,
+                value: '',
+                model: '',
+                error: '',
+            });
+            try {
+                const image = await pdfRef.current?.renderPageForOcr(pageNumber);
+                if (!image) throw new Error('无法渲染当前页面图像');
+                const result = await analyzePaperFigure({
+                    paperId: document.paper.id,
+                    paperTitle: document.paper.title,
+                    pageNumber,
+                    pageText,
+                    focusX,
+                    focusY,
+                    imageDataUrl: image,
+                    signal: controller.signal,
+                });
+                if (!controller.signal.aborted) {
+                    setFigureAnalysis((current) => ({
+                        ...current,
+                        loading: false,
+                        value: result.analysis ?? '',
+                        model: result.model ?? '',
+                        error: '',
+                    }));
+                }
+            } catch (reason) {
+                if (!controller.signal.aborted) {
+                    setFigureAnalysis((current) => ({
+                        ...current,
+                        loading: false,
+                        error: String(reason?.message ?? reason),
+                    }));
+                }
+            }
+        },
+        [document?.paper?.id, document?.paper?.title, invalidateSelectionTranslation]
+    );
 
     const closeSelection = useCallback(() => {
         aiAbortRef.current?.abort();
@@ -1154,6 +1295,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
     const closeReader = () => {
         pdfRef.current?.flushProgress?.();
         aiAbortRef.current?.abort();
+        figureAnalysisAbortRef.current?.abort();
         if (ocrProducerRef.current && !ocrProducerRef.current.cancelled) {
             ocrProducerRef.current.cancelled = true;
             void cancelResearchJob(ocrProducerRef.current.jobId).catch(() => undefined);
@@ -1467,6 +1609,9 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                     onReaderTabChange={setReaderSidebarTab}
                     annotationKindFilter={annotationKindFilter}
                     onAnnotationKindFilterChange={setAnnotationKindFilter}
+                    glossaryEntries={glossaryEntries}
+                    onAddGlossaryTerm={handleAddGlossaryTerm}
+                    onDeleteGlossaryEntry={handleDeleteGlossaryEntry}
                 />
             ) : null}
             {!sidebarCollapsed ? (
@@ -1526,6 +1671,7 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                             setNoteEditorTarget(null);
                             setNoteEditorPlacement(null);
                         }}
+                        onImageContextMenu={handleFigureContextMenu}
                         onTextInsert={openTextEditorAtPoint}
                         onAnnotationActivate={handleAnnotationActivate}
                         onAnnotationDelete={handleDeleteAnnotation}
@@ -1598,6 +1744,17 @@ export default function Research({ onNavigate, embedded = false, startInLibrary 
                             void handleAsk('解释所选内容', { intent: RESEARCH_AI_INTENTS.EXPLAIN_SELECTION });
                         }}
                         onClose={() => setSelectionMenu(null)}
+                    />
+                    <FigureAnalysisPopover
+                        open={figureAnalysis.open}
+                        point={figureAnalysis.point}
+                        boundaryRect={figureAnalysis.boundaryRect}
+                        pageNumber={figureAnalysis.pageNumber}
+                        loading={figureAnalysis.loading}
+                        value={figureAnalysis.value}
+                        model={figureAnalysis.model}
+                        error={figureAnalysis.error}
+                        onClose={closeFigureAnalysis}
                     />
                     <AnnotationEditorPopover
                         open={Boolean(noteEditorTarget && noteEditorOpen)}

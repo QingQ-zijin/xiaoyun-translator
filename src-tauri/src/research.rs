@@ -31,6 +31,8 @@ const MAX_REFERENCE_TOTAL_CHARACTERS: usize = 32_000_000;
 const MAX_REFERENCE_ENTRIES: usize = 4_000;
 const MAX_ANNOTATION_QUOTE_CHARACTERS: usize = 20_000;
 const MAX_ANNOTATION_PAYLOAD_BYTES: usize = 64 * 1024;
+const MAX_GLOSSARY_TERM_CHARACTERS: usize = 240;
+const MAX_GLOSSARY_TEXT_CHARACTERS: usize = 4_000;
 const MAX_DOCUMENT_PAGE_CHARACTERS: usize = 2_000_000;
 const MAX_DOCUMENT_TRANSLATION_CHARACTERS: usize = 4_000_000;
 const MAX_TEXT_DOCUMENT_BYTES: u64 = 32 * 1024 * 1024;
@@ -54,6 +56,51 @@ pub struct Tag {
     pub id: String,
     pub name: String,
     pub color: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GlossaryEntry {
+    pub id: String,
+    pub paper_id: String,
+    pub term: String,
+    pub translation: String,
+    pub definition: String,
+    pub context: String,
+    pub source_quote: String,
+    pub page_number: i64,
+    pub source_type: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GlossaryEntryInput {
+    #[serde(default)]
+    pub id: String,
+    pub paper_id: String,
+    pub term: String,
+    #[serde(default)]
+    pub translation: String,
+    #[serde(default)]
+    pub definition: String,
+    #[serde(default)]
+    pub context: String,
+    #[serde(default)]
+    pub source_quote: String,
+    #[serde(default = "default_glossary_page")]
+    pub page_number: i64,
+    #[serde(default = "default_glossary_source")]
+    pub source_type: String,
+}
+
+fn default_glossary_page() -> i64 {
+    1
+}
+
+fn default_glossary_source() -> String {
+    "manual".to_string()
 }
 
 /// 用于按研究主题组织论文的项目。项目只保存分类关系，删除项目不会删除论文。
@@ -402,6 +449,28 @@ fn initialise_schema(connection: &Connection) -> Result<(), String> {
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS glossary_entries (
+                id TEXT PRIMARY KEY,
+                paper_id TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+                term TEXT NOT NULL,
+                normalized_term TEXT NOT NULL,
+                translation TEXT NOT NULL DEFAULT '',
+                definition TEXT NOT NULL DEFAULT '',
+                context TEXT NOT NULL DEFAULT '',
+                source_quote TEXT NOT NULL DEFAULT '',
+                page_number INTEGER NOT NULL DEFAULT 1,
+                source_type TEXT NOT NULL DEFAULT 'manual',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE (paper_id, normalized_term),
+                CHECK (page_number >= 1)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_glossary_entries_paper_updated
+                ON glossary_entries(paper_id, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_glossary_entries_term
+                ON glossary_entries(normalized_term);
 
             CREATE TABLE IF NOT EXISTS reading_progress (
                 paper_id TEXT PRIMARY KEY REFERENCES papers(id) ON DELETE CASCADE,
@@ -2899,6 +2968,187 @@ pub fn research_delete_annotation(annotation_id: String) -> Result<(), String> {
     })
 }
 
+fn normalize_glossary_term(value: &str) -> String {
+    value
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+}
+
+fn validate_glossary_text(value: String, label: &str, maximum: usize) -> Result<String, String> {
+    let value = value
+        .replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .trim()
+        .to_string();
+    if value.chars().count() > maximum {
+        return Err(format!("词库{label}不能超过 {maximum} 个字符"));
+    }
+    if value
+        .chars()
+        .any(|character| character.is_control() && character != '\n' && character != '\t')
+    {
+        return Err(format!("词库{label}包含不允许的控制字符"));
+    }
+    Ok(value)
+}
+
+fn glossary_entry_from_row(row: &Row<'_>) -> rusqlite::Result<GlossaryEntry> {
+    Ok(GlossaryEntry {
+        id: row.get(0)?,
+        paper_id: row.get(1)?,
+        term: row.get(2)?,
+        translation: row.get(3)?,
+        definition: row.get(4)?,
+        context: row.get(5)?,
+        source_quote: row.get(6)?,
+        page_number: row.get(7)?,
+        source_type: row.get(8)?,
+        created_at: row.get(9)?,
+        updated_at: row.get(10)?,
+    })
+}
+
+fn list_glossary_on(
+    connection: &Connection,
+    paper_id: Option<&str>,
+    query: Option<&str>,
+) -> Result<Vec<GlossaryEntry>, String> {
+    let paper_id = paper_id.unwrap_or_default().trim();
+    let query = normalize_glossary_term(query.unwrap_or_default());
+    let mut statement = connection
+        .prepare(
+            "SELECT id, paper_id, term, translation, definition, context, source_quote,
+                    page_number, source_type, created_at, updated_at
+             FROM glossary_entries
+             WHERE (?1 = '' OR paper_id = ?1)
+               AND (?2 = '' OR normalized_term LIKE '%' || ?2 || '%'
+                    OR lower(translation) LIKE '%' || ?2 || '%'
+                    OR lower(definition) LIKE '%' || ?2 || '%')
+             ORDER BY updated_at DESC, term COLLATE NOCASE ASC
+             LIMIT 1000",
+        )
+        .map_err(|error| format!("准备词库查询失败：{error}"))?;
+    let entries = statement
+        .query_map(params![paper_id, query], glossary_entry_from_row)
+        .map_err(|error| format!("读取词库失败：{error}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("读取词库失败：{error}"))?;
+    Ok(entries)
+}
+
+fn save_glossary_on(
+    connection: &Connection,
+    input: GlossaryEntryInput,
+) -> Result<GlossaryEntry, String> {
+    let paper_id = input.paper_id.trim().to_string();
+    if paper_id.is_empty() {
+        return Err("词库条目缺少 paperId".to_string());
+    }
+    let term = validate_glossary_text(input.term, "术语", MAX_GLOSSARY_TERM_CHARACTERS)?;
+    if term.is_empty() {
+        return Err("词库术语不能为空".to_string());
+    }
+    let normalized_term = normalize_glossary_term(&term);
+    let translation =
+        validate_glossary_text(input.translation, "译名", MAX_GLOSSARY_TEXT_CHARACTERS)?;
+    let definition =
+        validate_glossary_text(input.definition, "解释", MAX_GLOSSARY_TEXT_CHARACTERS)?;
+    if translation.is_empty() && definition.is_empty() {
+        return Err("词库条目至少需要译名或解释".to_string());
+    }
+    let context = validate_glossary_text(input.context, "上下文", MAX_GLOSSARY_TEXT_CHARACTERS)?;
+    let source_quote =
+        validate_glossary_text(input.source_quote, "原文", MAX_GLOSSARY_TEXT_CHARACTERS)?;
+    let page_number = input.page_number.max(1);
+    let source_type = match input.source_type.trim() {
+        "insight" => "insight",
+        "selection" => "selection",
+        "manual" | "" => "manual",
+        _ => return Err("词库来源只能是 insight、selection 或 manual".to_string()),
+    };
+    let timestamp = now();
+    let id = if input.id.trim().is_empty() {
+        let digest = format!(
+            "{:x}",
+            Sha256::digest(format!("{paper_id}:{normalized_term}:{timestamp}").as_bytes())
+        );
+        format!("glossary-{}", &digest[..24])
+    } else {
+        input.id.trim().to_string()
+    };
+    connection
+        .execute(
+            "INSERT INTO glossary_entries(
+                id, paper_id, term, normalized_term, translation, definition, context,
+                source_quote, page_number, source_type, created_at, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)
+             ON CONFLICT(paper_id, normalized_term) DO UPDATE SET
+                term=excluded.term,
+                translation=excluded.translation,
+                definition=excluded.definition,
+                context=excluded.context,
+                source_quote=excluded.source_quote,
+                page_number=excluded.page_number,
+                source_type=excluded.source_type,
+                updated_at=excluded.updated_at",
+            params![
+                id,
+                paper_id,
+                term,
+                normalized_term,
+                translation,
+                definition,
+                context,
+                source_quote,
+                page_number,
+                source_type,
+                timestamp
+            ],
+        )
+        .map_err(|error| format!("保存词库条目失败：{error}"))?;
+    connection
+        .query_row(
+            "SELECT id, paper_id, term, translation, definition, context, source_quote,
+                    page_number, source_type, created_at, updated_at
+             FROM glossary_entries WHERE paper_id = ?1 AND normalized_term = ?2",
+            params![paper_id, normalized_term],
+            glossary_entry_from_row,
+        )
+        .map_err(|error| format!("读取已保存词库条目失败：{error}"))
+}
+
+#[tauri::command]
+pub fn research_list_glossary(
+    paper_id: Option<String>,
+    query: Option<String>,
+) -> Result<Vec<GlossaryEntry>, String> {
+    with_database(|connection| list_glossary_on(connection, paper_id.as_deref(), query.as_deref()))
+}
+
+#[tauri::command]
+pub fn research_save_glossary_entry(entry: GlossaryEntryInput) -> Result<GlossaryEntry, String> {
+    with_database(|connection| save_glossary_on(connection, entry))
+}
+
+#[tauri::command]
+pub fn research_delete_glossary_entry(entry_id: String) -> Result<(), String> {
+    let entry_id = entry_id.trim();
+    if entry_id.is_empty() {
+        return Err("词库条目 ID 不能为空".to_string());
+    }
+    with_database(|connection| {
+        connection
+            .execute(
+                "DELETE FROM glossary_entries WHERE id = ?1",
+                params![entry_id],
+            )
+            .map_err(|error| format!("删除词库条目失败：{error}"))?;
+        Ok(())
+    })
+}
+
 fn validate_reference_pages(
     pages: Vec<ReferencePageInput>,
 ) -> Result<Vec<ReferencePageInput>, String> {
@@ -4634,6 +4884,7 @@ mod tests {
         for table in [
             "papers",
             "annotations",
+            "glossary_entries",
             "reading_progress",
             "document_outline",
             "document_pages",
@@ -4662,6 +4913,8 @@ mod tests {
             "idx_project_papers_paper",
             "idx_document_outline_paper_page",
             "idx_document_translation_pages_updated",
+            "idx_glossary_entries_paper_updated",
+            "idx_glossary_entries_term",
         ] {
             let exists: i64 = connection
                 .query_row(
@@ -5611,5 +5864,50 @@ mod tests {
             serde_json::from_str(&serde_json::to_string(&value).unwrap()).unwrap();
         assert_eq!(roundtrip["quote"], "Michaelis–Menten");
         assert_eq!(roundtrip["rects"][0]["x"], 0.1);
+    }
+
+    #[test]
+    fn glossary_upsert_normalizes_terms_and_preserves_paper_scope() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialise_schema(&connection).unwrap();
+        insert_reference_test_paper(&connection, "paper-glossary", "Glossary", "");
+
+        let first = save_glossary_on(
+            &connection,
+            GlossaryEntryInput {
+                id: String::new(),
+                paper_id: "paper-glossary".into(),
+                term: " Metabolic   Flux ".into(),
+                translation: "代谢通量".into(),
+                definition: "单位时间内通过代谢反应的物质量。".into(),
+                context: "TMFA predicts metabolic flux.".into(),
+                source_quote: "metabolic flux".into(),
+                page_number: 7,
+                source_type: "insight".into(),
+            },
+        )
+        .unwrap();
+        let updated = save_glossary_on(
+            &connection,
+            GlossaryEntryInput {
+                id: String::new(),
+                paper_id: "paper-glossary".into(),
+                term: "metabolic flux".into(),
+                translation: "代谢通量".into(),
+                definition: "在稳态条件下满足 $Sv=0$。".into(),
+                context: "steady-state flux".into(),
+                source_quote: "metabolic flux".into(),
+                page_number: 9,
+                source_type: "selection".into(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(first.id, updated.id);
+        let entries = list_glossary_on(&connection, Some("paper-glossary"), Some("flux")).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].page_number, 9);
+        assert!(entries[0].definition.contains("Sv=0"));
+        assert_eq!(entries[0].source_type, "selection");
     }
 }

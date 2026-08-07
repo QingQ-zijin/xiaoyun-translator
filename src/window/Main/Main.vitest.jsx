@@ -42,12 +42,12 @@ afterEach(() => {
 });
 
 describe('主导航与论文阅读器', () => {
-    it('阅读论文时再次点击“论文库”仍默认恢复最近阅读论文', () => {
+    it('阅读论文时再次点击顶部“阅读”仍默认恢复最近阅读论文', () => {
         render(<Main />);
 
         expect(screen.getByRole('region', { name: '论文阅读器' })).toBeTruthy();
 
-        fireEvent.click(screen.getByRole('button', { name: '论文库' }));
+        fireEvent.click(screen.getByRole('button', { name: '阅读' }));
 
         expect(screen.getByRole('region', { name: '论文阅读器' })).toBeTruthy();
         expect(screen.queryByRole('region', { name: '论文库首页' })).toBeNull();

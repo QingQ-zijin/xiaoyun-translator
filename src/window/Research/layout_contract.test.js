@@ -13,16 +13,24 @@ const readRule = (css, selector) => {
     return css.match(new RegExp(`${escapedSelector}\\s*\\{(?<body>[\\s\\S]*?)\\}`, 'u'))?.groups?.body ?? '';
 };
 
-test('主界面与论文阅读器共享同一组侧栏尺寸', () => {
+test('主界面取消全局左栏，独立阅读器仍保留兼容导航与统一上下文侧栏', () => {
     const mainCss = readProjectFile('src/window/Main/main.css');
     const researchCss = readProjectFile('src/window/Research/research.css');
 
-    for (const css of [mainCss, researchCss]) {
-        assert.match(css, /--app-rail-width:\s*92px/u);
-        assert.match(css, /--app-context-sidebar-width:\s*274px/u);
-        assert.match(css, /@media \(max-width:\s*880px\)[\s\S]*--app-rail-width:\s*78px/u);
-        assert.match(css, /@media \(max-width:\s*880px\)[\s\S]*--app-context-sidebar-width:\s*240px/u);
-    }
+    assert.match(mainCss, /--app-rail-width:\s*0px/u);
+    assert.doesNotMatch(mainCss, /--app-rail-width:\s*(?:78|92)px/u);
+    assert.match(mainCss, /--app-context-sidebar-width:\s*274px/u);
+    assert.match(mainCss, /@media \(max-width:\s*880px\)[\s\S]*--app-context-sidebar-width:\s*240px/u);
+
+    assert.match(researchCss, /--app-rail-width:\s*92px/u);
+    assert.match(researchCss, /--app-context-sidebar-width:\s*274px/u);
+    assert.match(researchCss, /@media \(max-width:\s*880px\)[\s\S]*--app-rail-width:\s*78px/u);
+    assert.match(researchCss, /@media \(max-width:\s*880px\)[\s\S]*--app-context-sidebar-width:\s*240px/u);
+    assert.match(
+        readRule(researchCss, '.research-shell.is-embedded:is(.is-reader, .is-library)'),
+        /grid-template-columns:\s*var\(--app-context-sidebar-width\)\s+minmax\(430px,\s*1fr\)/u
+    );
+    assert.match(readRule(researchCss, '.research-shell.is-embedded'), /grid-column:\s*1/u);
 });
 
 test('论文阅读器主栅格只保留导航、上下文侧栏与 PDF 三栏', () => {

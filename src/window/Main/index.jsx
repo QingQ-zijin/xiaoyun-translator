@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 
 import Research from '../Research';
-import MainRail from './MainRail';
 import MainTitlebar from './MainTitlebar';
 import OllamaFirstRunGate from './OllamaFirstRunGate';
 import SettingsPanel from './SettingsPanel';
@@ -54,10 +53,6 @@ export default function Main() {
             <OllamaFirstRunGate />
             <UpdateNotice updater={updater} />
             <MainTitlebar
-                active={active}
-                onNavigate={navigate}
-            />
-            <MainRail
                 active={active}
                 onNavigate={navigate}
             />

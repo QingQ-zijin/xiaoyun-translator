@@ -48,6 +48,30 @@ function setupNativeSelectionHarness(paperId) {
 }
 
 describe('PDF 文内批注标记', () => {
+    it('未选中文字时右键页面会提交图像分析焦点与正文上下文', () => {
+        const onImageContextMenu = vi.fn();
+        const { container } = render(
+            <PdfWorkspace
+                source=''
+                document={{ paper: { id: 'figure-paper' }, pageCount: 2 }}
+                currentPage={2}
+                scale={1.25}
+                onImageContextMenu={onImageContextMenu}
+            />
+        );
+        const workspace = screen.getByRole('main', { name: 'PDF 阅读区' });
+        const page = container.querySelector('.demo-pdf-page');
+        const target = container.querySelector('[data-pdf-selection-layer]');
+        workspace.getBoundingClientRect = () => ({ left: 0, top: 0, right: 900, bottom: 700, width: 900, height: 700 });
+        page.getBoundingClientRect = () => ({ left: 100, top: 50, right: 700, bottom: 850, width: 600, height: 800 });
+
+        fireEvent.contextMenu(target, { clientX: 400, clientY: 450 });
+
+        expect(onImageContextMenu).toHaveBeenCalledWith(
+            expect.objectContaining({ pageNumber: 2, focusX: 0.5, focusY: 0.5 })
+        );
+    });
+
     it.each([
         ['excerpt', '摘录', 'amber'],
         ['vocabulary', '摘词', 'blue'],

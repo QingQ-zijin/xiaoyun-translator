@@ -14,6 +14,7 @@ import {
     PiTrash,
 } from 'react-icons/pi';
 import { annotationKind, summarizeAnnotations } from '../../../domains/research/model';
+import FormattedTranslation from '../../Translate/components/FormattedTranslation';
 import DocumentOutlinePanel from './DocumentOutlinePanel';
 import PaperInsightsPanel from './PaperInsightsPanel';
 import ProjectSection from './ProjectSection';
@@ -34,7 +35,7 @@ const ANNOTATION_KIND_FILTERS = [
     { id: 'text', countKey: 'texts', label: '文字' },
 ];
 
-const READER_TAB_IDS = ['insights', 'outline', 'annotations', 'relations'];
+const READER_TAB_IDS = ['insights', 'outline', 'glossary', 'annotations', 'relations'];
 
 function handleReaderTabKeyDown(event) {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
@@ -116,6 +117,65 @@ function AnnotationRow({ annotation, onJump, onOpen, onDelete }) {
     );
 }
 
+function GlossaryPanel({ entries = [], onJump, onDelete }) {
+    const [query, setQuery] = useState('');
+    const visibleEntries = useMemo(() => {
+        const normalized = query.trim().toLocaleLowerCase();
+        if (!normalized) return entries;
+        return entries.filter((entry) =>
+            [entry.term, entry.translation, entry.definition].join(' ').toLocaleLowerCase().includes(normalized)
+        );
+    }, [entries, query]);
+
+    return (
+        <section className='glossary-panel'>
+            <label className='glossary-panel__search'>
+                <PiMagnifyingGlass aria-hidden='true' />
+                <input
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder='搜索术语、译名或解释'
+                />
+            </label>
+            <p className='glossary-panel__hint'>从全文解读选择收录，或在正文中划词后选择“摘抄单词”。</p>
+            <div className='glossary-panel__list'>
+                {visibleEntries.map((entry) => (
+                    <article key={entry.id}>
+                        <header>
+                            <button
+                                type='button'
+                                className='glossary-panel__term'
+                                onClick={() => onJump?.(entry.pageNumber)}
+                            >
+                                <strong>{entry.term}</strong>
+                                {entry.translation ? <em>{entry.translation}</em> : null}
+                            </button>
+                            <button
+                                type='button'
+                                className='glossary-panel__delete'
+                                aria-label={`从词库删除：${entry.term}`}
+                                onClick={() => onDelete?.(entry)}
+                            >
+                                <PiTrash aria-hidden='true' />
+                            </button>
+                        </header>
+                        {entry.definition ? (
+                            <FormattedTranslation
+                                value={entry.definition}
+                                fontSize={13}
+                            />
+                        ) : null}
+                        <footer>
+                            第 {entry.pageNumber} 页 · {entry.sourceType === 'insight' ? '全文解读' : '划词收录'}
+                        </footer>
+                    </article>
+                ))}
+            </div>
+            {visibleEntries.length === 0 ? <p className='sidebar-empty'>词库中还没有匹配的术语。</p> : null}
+        </section>
+    );
+}
+
 export default function LibrarySidebar({
     mode,
     paper,
@@ -155,6 +215,9 @@ export default function LibrarySidebar({
     onReaderTabChange,
     annotationKindFilter: controlledAnnotationKindFilter,
     onAnnotationKindFilterChange,
+    glossaryEntries = [],
+    onAddGlossaryTerm,
+    onDeleteGlossaryEntry,
 }) {
     const isBook = paper?.contentKind === 'book';
     const defaultReaderTab = isBook ? 'outline' : 'insights';
@@ -248,6 +311,20 @@ export default function LibrarySidebar({
                     </button>
                     <button
                         type='button'
+                        id='reader-sidebar-tab-glossary'
+                        role='tab'
+                        aria-controls='reader-sidebar-panel'
+                        aria-selected={activeReaderTab === 'glossary'}
+                        tabIndex={activeReaderTab === 'glossary' ? 0 : -1}
+                        className={activeReaderTab === 'glossary' ? 'is-active' : ''}
+                        onClick={() => selectReaderTab('glossary')}
+                    >
+                        <PiBooks aria-hidden='true' />
+                        <span>词库</span>
+                        {glossaryEntries.length ? <small>{glossaryEntries.length}</small> : null}
+                    </button>
+                    <button
+                        type='button'
                         id='reader-sidebar-tab-annotations'
                         role='tab'
                         aria-label='笔记与摘录'
@@ -288,6 +365,15 @@ export default function LibrarySidebar({
                             error={insightsError}
                             onJump={onJump}
                             onRegenerate={onRegenerate}
+                            glossaryEntries={glossaryEntries}
+                            onAddTerm={onAddGlossaryTerm}
+                        />
+                    ) : null}
+                    {activeReaderTab === 'glossary' ? (
+                        <GlossaryPanel
+                            entries={glossaryEntries}
+                            onJump={onJump}
+                            onDelete={onDeleteGlossaryEntry}
                         />
                     ) : null}
                     {activeReaderTab === 'outline' ? (

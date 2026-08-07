@@ -37,12 +37,12 @@
     grid-template-rows: 96px minmax(0, 1fr);
 }
 
-/* 主窗口始终保留同一条导航栏，切换翻译/论文/设置时不再重建整套壳层。 */
+/* 嵌入主窗口时由顶部标题栏承担全局导航，不再为左侧导航保留隐式网格列。 */
 .research-shell.is-embedded {
     --research-rail-width: 0px;
     position: relative;
     inset: auto;
-    grid-column: 2;
+    grid-column: 1;
     width: 100%;
     height: 100%;
     min-width: 0;
@@ -332,7 +332,7 @@
 .reader-sidebar-tabs {
     height: 46px;
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     flex: 0 0 46px;
     padding: 5px 8px 0;
     border-bottom: 1px solid var(--research-border);
@@ -340,7 +340,7 @@
 }
 
 .reader-sidebar-tabs--book {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .reader-sidebar-tabs button {
@@ -885,6 +885,12 @@
 }
 
 .paper-insights__terms dt span {
+    min-width: 0;
+    display: inline-flex;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 5px;
     overflow-wrap: anywhere;
 }
 
@@ -900,6 +906,162 @@
     color: #646873;
     font-size: 9px;
     line-height: 1.65;
+}
+
+.paper-insights__save-term {
+    width: 25px;
+    height: 25px;
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    border: 1px solid #ddd8f8;
+    border-radius: 7px;
+    background: #fbfaff;
+    color: var(--research-accent);
+    cursor: pointer;
+}
+
+.paper-insights__save-term:hover:not(:disabled) {
+    border-color: #b7acf1;
+    background: var(--research-accent-soft);
+}
+
+.paper-insights__save-term:disabled {
+    cursor: default;
+    opacity: 0.58;
+}
+
+.paper-insights__formula-list {
+    display: grid;
+    gap: 10px;
+}
+
+.paper-insights__formula-list > article {
+    min-width: 0;
+    overflow: auto hidden;
+    padding: 10px;
+    border: 1px solid #ebe7fb;
+    border-radius: 9px;
+    background: #fcfbff;
+}
+
+.paper-insights__formula-list .katex-display {
+    margin: 3px 0 8px;
+}
+
+.glossary-panel {
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow: auto;
+    padding: 12px 12px 22px;
+    scrollbar-width: thin;
+    scrollbar-color: #d9d5ed transparent;
+}
+
+.glossary-panel__search {
+    height: 34px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 10px;
+    border: 1px solid var(--research-border);
+    border-radius: 9px;
+    background: #fbfbfd;
+    color: #8b8e98;
+}
+
+.glossary-panel__search input {
+    min-width: 0;
+    flex: 1;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--research-text);
+    font: inherit;
+    font-size: 10px;
+}
+
+.glossary-panel__hint {
+    margin: 9px 2px 12px;
+    color: var(--research-muted);
+    font-size: 9px;
+    line-height: 1.55;
+}
+
+.glossary-panel__list {
+    display: grid;
+    gap: 9px;
+}
+
+.glossary-panel__list > article {
+    padding: 11px;
+    border: 1px solid #ece9f8;
+    border-radius: 10px;
+    background: #fff;
+}
+
+.glossary-panel__list > article > header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.glossary-panel__term {
+    min-width: 0;
+    display: flex;
+    flex: 1;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 7px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #30333c;
+    text-align: left;
+    cursor: pointer;
+}
+
+.glossary-panel__term strong {
+    overflow-wrap: anywhere;
+    font-size: 11px;
+}
+
+.glossary-panel__term em {
+    color: var(--research-accent);
+    font-size: 9px;
+    font-style: normal;
+}
+
+.glossary-panel__delete {
+    width: 24px;
+    height: 24px;
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: #9699a2;
+    cursor: pointer;
+}
+
+.glossary-panel__delete:hover {
+    background: #fff1f2;
+    color: #ca5863;
+}
+
+.glossary-panel__list .formatted-translation {
+    margin-top: 7px;
+    color: #555965;
+    font-size: 9px;
+    line-height: 1.65;
+}
+
+.glossary-panel__list footer {
+    margin-top: 7px;
+    color: #9a9da6;
+    font-size: 8px;
 }
 
 .paper-insights__pages {

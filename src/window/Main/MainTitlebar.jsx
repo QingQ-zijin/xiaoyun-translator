@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { PiFileArrowUp, PiGear, PiReadCvLogo } from 'react-icons/pi';
+import { PiFileArrowUp, PiGear, PiReadCvLogo, PiTranslate } from 'react-icons/pi';
 import { VscChromeClose, VscChromeMaximize, VscChromeMinimize, VscChromeRestore } from 'react-icons/vsc';
 
 import packageMetadata from '../../../package.json';
@@ -66,6 +66,14 @@ export default function MainTitlebar({ active, onNavigate }) {
                 className='main-titlebar__menu'
                 aria-label='窗口快捷菜单'
             >
+                <button
+                    type='button'
+                    className={active === 'translate' ? 'is-active' : ''}
+                    onClick={() => onNavigate?.('translate')}
+                >
+                    <PiTranslate aria-hidden='true' />
+                    翻译
+                </button>
                 <button
                     type='button'
                     onClick={openDocumentTranslation}

@@ -62,6 +62,7 @@ let demoTags = clone(DEMO_TAGS);
 let demoProjects = [];
 let demoAnnotations = clone(DEMO_ANNOTATIONS);
 let demoDocumentTranslations = [];
+let demoGlossaryEntries = [];
 
 const DEMO_INSIGHTS = Object.freeze({
     status: 'ready',
@@ -774,6 +775,65 @@ export async function deleteAnnotation(annotationId) {
     demoAnnotations = demoAnnotations.filter((annotation) => annotation.id !== annotationId);
 }
 
+export async function listGlossary({ paperId = '', query = '' } = {}) {
+    const safePaperId = String(paperId ?? '').trim();
+    const safeQuery = String(query ?? '')
+        .trim()
+        .toLocaleLowerCase();
+    if (isTauriRuntime()) {
+        return invokeResearch('research_list_glossary', {
+            paperId: safePaperId || null,
+            query: safeQuery || null,
+        });
+    }
+    return clone(
+        demoGlossaryEntries.filter((entry) => {
+            if (safePaperId && entry.paperId !== safePaperId) return false;
+            if (!safeQuery) return true;
+            return [entry.term, entry.translation, entry.definition].join(' ').toLocaleLowerCase().includes(safeQuery);
+        })
+    );
+}
+
+export async function saveGlossaryEntry(entry) {
+    const normalized = {
+        id: String(entry?.id ?? '').trim(),
+        paperId: String(entry?.paperId ?? '').trim(),
+        term: String(entry?.term ?? '').trim(),
+        translation: String(entry?.translation ?? '').trim(),
+        definition: String(entry?.definition ?? '').trim(),
+        context: String(entry?.context ?? '').trim(),
+        sourceQuote: String(entry?.sourceQuote ?? '').trim(),
+        pageNumber: Math.max(1, Number(entry?.pageNumber) || 1),
+        sourceType: String(entry?.sourceType ?? 'manual').trim() || 'manual',
+    };
+    if (!normalized.paperId || !normalized.term) throw new Error('词库条目缺少论文或术语');
+    if (isTauriRuntime()) return invokeResearch('research_save_glossary_entry', { entry: normalized });
+    const timestamp = now();
+    const key = normalized.term.toLocaleLowerCase();
+    const existing = demoGlossaryEntries.find(
+        (candidate) => candidate.paperId === normalized.paperId && candidate.term.toLocaleLowerCase() === key
+    );
+    const saved = {
+        ...existing,
+        ...normalized,
+        id: existing?.id || normalized.id || createId('glossary'),
+        createdAt: existing?.createdAt || timestamp,
+        updatedAt: timestamp,
+    };
+    demoGlossaryEntries = existing
+        ? demoGlossaryEntries.map((candidate) => (candidate.id === existing.id ? saved : candidate))
+        : [saved, ...demoGlossaryEntries];
+    return clone(saved);
+}
+
+export async function deleteGlossaryEntry(entryId) {
+    const safeEntryId = String(entryId ?? '').trim();
+    if (!safeEntryId) throw new Error('词库条目 ID 不能为空');
+    if (isTauriRuntime()) return invokeResearch('research_delete_glossary_entry', { entryId: safeEntryId });
+    demoGlossaryEntries = demoGlossaryEntries.filter((entry) => entry.id !== safeEntryId);
+}
+
 export async function startOcrJob(paperId, scope, totalPages = 1) {
     if (!isTauriRuntime()) {
         return { jobId: createId('demo-ocr'), kind: `ocr-${scope}`, state: 'queued', total: totalPages, completed: 0 };
@@ -935,6 +995,85 @@ export async function askPaper({
     } catch (error) {
         if (!isUnknownCommandError(error)) throw error;
         throw new Error('当前程序后端不支持论文问答，请安装最新版本后重试。');
+    }
+}
+
+export async function analyzePaperFigure({
+    paperId,
+    paperTitle,
+    pageNumber,
+    pageText,
+    imageDataUrl,
+    focusX = 0.5,
+    focusY = 0.5,
+    signal,
+}) {
+    if (signal?.aborted) throw createAbortError();
+    if (!imageDataUrl) throw new Error('没有可分析的论文页面图像');
+    if (!isTauriRuntime()) {
+        return {
+            analysis:
+                '### 图像主旨\n该图通过空间布局比较不同实验条件。\n\n### 变量与公式\n坐标轴和图例共同定义了比较维度；若图中存在公式，应结合正文中的变量定义解释。\n\n### 与正文的联系\n图像是正文论证的视觉证据，解读时应区分观测结果、模型输出与作者推断。',
+            model: UNIFIED_OLLAMA_MODEL,
+            pageNumber: Math.max(1, Number(pageNumber) || 1),
+        };
+    }
+    const focusedImageDataUrl = await markFigureFocus(imageDataUrl, focusX, focusY);
+    const request = invokeResearch('research_analyze_figure', {
+        paperId: String(paperId ?? ''),
+        paperTitle: String(paperTitle ?? ''),
+        pageNumber: Math.max(1, Number(pageNumber) || 1),
+        pageText: String(pageText ?? '').slice(0, 8_000),
+        imageDataUrl: focusedImageDataUrl,
+        focusX: Math.min(1, Math.max(0, Number(focusX) || 0)),
+        focusY: Math.min(1, Math.max(0, Number(focusY) || 0)),
+    });
+    if (!signal) return request;
+    return Promise.race([
+        request,
+        new Promise((_, reject) => {
+            signal.addEventListener('abort', () => reject(createAbortError()), { once: true });
+        }),
+    ]);
+}
+
+async function markFigureFocus(imageDataUrl, focusX, focusY) {
+    if (typeof Image !== 'function' || !globalThis.document?.createElement) return imageDataUrl;
+    try {
+        const image = new Image();
+        image.src = imageDataUrl;
+        if (typeof image.decode === 'function') await image.decode();
+        else {
+            await new Promise((resolve, reject) => {
+                image.onload = resolve;
+                image.onerror = reject;
+            });
+        }
+        const canvas = globalThis.document.createElement('canvas');
+        canvas.width = image.naturalWidth || image.width;
+        canvas.height = image.naturalHeight || image.height;
+        const context = canvas.getContext('2d');
+        if (!context || !canvas.width || !canvas.height) return imageDataUrl;
+        context.drawImage(image, 0, 0);
+        const x = Math.min(1, Math.max(0, Number(focusX) || 0)) * canvas.width;
+        const y = Math.min(1, Math.max(0, Number(focusY) || 0)) * canvas.height;
+        const radius = Math.max(14, Math.min(canvas.width, canvas.height) * 0.022);
+        context.save();
+        context.strokeStyle = '#7657e8';
+        context.lineWidth = Math.max(4, radius * 0.18);
+        context.shadowColor = 'rgba(255,255,255,.95)';
+        context.shadowBlur = Math.max(4, radius * 0.2);
+        context.beginPath();
+        context.arc(x, y, radius, 0, Math.PI * 2);
+        context.moveTo(x - radius * 1.45, y);
+        context.lineTo(x + radius * 1.45, y);
+        context.moveTo(x, y - radius * 1.45);
+        context.lineTo(x, y + radius * 1.45);
+        context.stroke();
+        context.restore();
+        return canvas.toDataURL('image/png');
+    } catch {
+        return imageDataUrl;
     }
 }
 

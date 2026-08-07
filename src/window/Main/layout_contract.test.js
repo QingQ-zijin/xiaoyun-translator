@@ -14,6 +14,8 @@ const readRule = (css, selector) => {
 
 test('设置页与其他主模块占满同一工作区高度，并使用统一进入过渡', () => {
     const css = readProjectFile('src/window/Main/main.css');
+    const mainSource = readProjectFile('src/window/Main/index.jsx');
+    const mainShell = readRule(css, '.main-shell');
     const settingsPage = readRule(css, '.main-page--settings');
     const settingsLayout = readRule(css, '.settings-layout');
     const settingsContent = readRule(css, '.settings-content');
@@ -21,6 +23,9 @@ test('设置页与其他主模块占满同一工作区高度，并使用统一�
 
     assert.match(css, /\.main-shell > :is\(\.main-page, \.research-shell\)\s*\{[^}]*height:\s*100%/u);
     assert.match(css, /\.main-shell > :is\(\.main-page, \.research-shell\)\s*\{[^}]*main-surface-enter/u);
+    assert.match(mainShell, /grid-template-columns:\s*minmax\(0,\s*1fr\)/u);
+    assert.doesNotMatch(mainSource, /MainRail/u);
+    assert.doesNotMatch(css, /\.main-rail(?:__|\s*\{)/u);
     assert.match(settingsPage, /height:\s*100%/u);
     assert.match(settingsPage, /overflow:\s*hidden/u);
     assert.match(settingsLayout, /height:\s*100%/u);

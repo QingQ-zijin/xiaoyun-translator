@@ -72,7 +72,9 @@ describe('学术翻译工作区 Ollama 恢复', () => {
         );
 
         expect(await screen.findByRole('button', { name: '完成本地 AI 设置' })).toBeTruthy();
-        const translateButton = screen.getByRole('button', { name: '启动并翻译' });
+        const translateButton = screen.getByRole('button', {
+            name: /启动并翻译|开始翻译/u,
+        });
         expect(translateButton.disabled).toBe(true);
 
         await waitFor(() => expect(screen.getByText('Gemma 4 E4B 就绪')).toBeTruthy());

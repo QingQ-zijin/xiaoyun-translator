@@ -98,6 +98,38 @@ describe('小允论文阅读器侧栏', () => {
         expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe('reader-sidebar-tab-insights');
     });
 
+    it('论文词库可搜索、跳回原页并删除条目', () => {
+        const onJump = vi.fn();
+        const onDeleteGlossaryEntry = vi.fn();
+        const entry = {
+            id: 'glossary-1',
+            term: 'metabolic flux',
+            translation: '代谢通量',
+            definition: '单位时间内通过反应的物质量，满足 $Sv=0$。',
+            pageNumber: 7,
+            sourceType: 'insight',
+        };
+        const { container } = render(
+            <LibrarySidebar
+                mode='reader'
+                paper={{ id: 'paper-1', title: 'TMFA', contentKind: 'paper' }}
+                insights={insight}
+                glossaryEntries={[entry]}
+                onJump={onJump}
+                onDeleteGlossaryEntry={onDeleteGlossaryEntry}
+                onBack={() => {}}
+            />
+        );
+
+        fireEvent.click(screen.getByRole('tab', { name: /词库/u }));
+        expect(screen.getByText('代谢通量')).toBeTruthy();
+        expect(container.querySelector('.katex')).not.toBeNull();
+        fireEvent.click(container.querySelector('.glossary-panel__term'));
+        expect(onJump).toHaveBeenCalledWith(7);
+        fireEvent.click(screen.getByRole('button', { name: '从词库删除：metabolic flux' }));
+        expect(onDeleteGlossaryEntry).toHaveBeenCalledWith(entry);
+    });
+
     it('书籍默认进入独立目录页，并从本地缓存展示章节概要与术语', () => {
         const onJump = vi.fn();
         const onSelectChapter = vi.fn();

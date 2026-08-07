@@ -1,5 +1,17 @@
 import { useMemo, useState } from 'react';
-import { PiArrowClockwise, PiCircleNotch, PiFileText, PiFlask, PiLightbulb, PiWarningCircle } from 'react-icons/pi';
+import {
+    PiArrowClockwise,
+    PiCheck,
+    PiCircleNotch,
+    PiFileText,
+    PiFlask,
+    PiFunction,
+    PiLightbulb,
+    PiPlus,
+    PiWarningCircle,
+} from 'react-icons/pi';
+
+import FormattedTranslation from '../../Translate/components/FormattedTranslation';
 
 const ACTIVE_STATUSES = new Set(['loading', 'indexing', 'generating', 'queued', 'paused']);
 
@@ -19,9 +31,15 @@ export function normalizePaperInsights(insights) {
         status,
         summary,
         researchQuestion: String(payload.researchQuestion ?? payload.research_question ?? '').trim(),
+        contributions: asList(payload.contributions),
         methods: asList(payload.methods),
         findings: asList(payload.findings),
+        implications: asList(payload.implications),
         limitations: asList(payload.limitations),
+        formulas: asList(payload.formulas).map((formula) => ({
+            latex: String(formula?.latex ?? '').trim(),
+            explanation: String(formula?.explanation ?? '').trim(),
+        })),
         terms: asList(payload.terms).map((term) => ({
             term: String(term?.term ?? '').trim(),
             translation: String(term?.translation ?? '').trim(),
@@ -36,6 +54,16 @@ export function normalizePaperInsights(insights) {
     };
 }
 
+function AcademicMarkup({ value, fontSize = 14 }) {
+    if (!String(value ?? '').trim()) return null;
+    return (
+        <FormattedTranslation
+            value={value}
+            fontSize={fontSize}
+        />
+    );
+}
+
 function InsightList({ title, icon, items }) {
     if (!items.length) return null;
     return (
@@ -46,19 +74,53 @@ function InsightList({ title, icon, items }) {
             </h3>
             <ul>
                 {items.map((item, index) => (
-                    <li key={`${title}-${index}-${item.slice(0, 20)}`}>{item}</li>
+                    <li key={`${title}-${index}-${item.slice(0, 20)}`}>
+                        <AcademicMarkup value={item} />
+                    </li>
                 ))}
             </ul>
         </section>
     );
 }
 
-export default function PaperInsightsPanel({ insights, error = '', onJump, onRegenerate }) {
+export default function PaperInsightsPanel({
+    insights,
+    error = '',
+    onJump,
+    onRegenerate,
+    glossaryEntries = [],
+    onAddTerm,
+}) {
     const data = useMemo(() => normalizePaperInsights(insights), [insights]);
     const [regenerating, setRegenerating] = useState(false);
     const [actionError, setActionError] = useState('');
+    const [savingTerm, setSavingTerm] = useState('');
     const isActive = ACTIVE_STATUSES.has(data.status) || regenerating;
     const visibleError = actionError || error || data.error;
+    const savedTerms = useMemo(
+        () =>
+            new Set(
+                glossaryEntries.map((entry) =>
+                    String(entry?.term ?? '')
+                        .trim()
+                        .toLocaleLowerCase()
+                )
+            ),
+        [glossaryEntries]
+    );
+
+    const addTerm = async (item) => {
+        if (!onAddTerm || !item?.term || savingTerm) return;
+        setSavingTerm(item.term);
+        setActionError('');
+        try {
+            await onAddTerm(item);
+        } catch (nextError) {
+            setActionError(String(nextError?.message ?? nextError));
+        } finally {
+            setSavingTerm('');
+        }
+    };
 
     const regenerate = async () => {
         if (!onRegenerate || regenerating) return;
@@ -143,17 +205,22 @@ export default function PaperInsightsPanel({ insights, error = '', onJump, onReg
             </header>
             <section className='paper-insights__section paper-insights__section--summary'>
                 <h2>全文概要</h2>
-                <p>{data.summary}</p>
+                <AcademicMarkup value={data.summary} />
             </section>
             {data.researchQuestion ? (
                 <section className='paper-insights__question'>
                     <PiLightbulb aria-hidden='true' />
                     <div>
                         <strong>研究问题</strong>
-                        <p>{data.researchQuestion}</p>
+                        <AcademicMarkup value={data.researchQuestion} />
                     </div>
                 </section>
             ) : null}
+            <InsightList
+                title='核心贡献'
+                icon={<PiLightbulb aria-hidden='true' />}
+                items={data.contributions}
+            />
             <InsightList
                 title='研究方法'
                 icon={<PiFlask aria-hidden='true' />}
@@ -165,10 +232,34 @@ export default function PaperInsightsPanel({ insights, error = '', onJump, onReg
                 items={data.findings}
             />
             <InsightList
+                title='研究意义'
+                icon={<PiLightbulb aria-hidden='true' />}
+                items={data.implications}
+            />
+            <InsightList
                 title='研究局限'
                 icon={<PiWarningCircle aria-hidden='true' />}
                 items={data.limitations}
             />
+            {data.formulas.length ? (
+                <section className='paper-insights__section paper-insights__formulas'>
+                    <h3>
+                        <PiFunction aria-hidden='true' />
+                        核心公式
+                    </h3>
+                    <div className='paper-insights__formula-list'>
+                        {data.formulas.map((formula, index) => (
+                            <article key={`${formula.latex}-${index}`}>
+                                <AcademicMarkup
+                                    value={formula.latex}
+                                    fontSize={15}
+                                />
+                                <AcademicMarkup value={formula.explanation} />
+                            </article>
+                        ))}
+                    </div>
+                </section>
+            ) : null}
             <section className='paper-insights__section paper-insights__terms'>
                 <h3>关键术语</h3>
                 {data.terms.length ? (
@@ -176,10 +267,42 @@ export default function PaperInsightsPanel({ insights, error = '', onJump, onReg
                         {data.terms.map((item, index) => (
                             <div key={`${item.term}-${index}`}>
                                 <dt>
-                                    <span>{item.term}</span>
-                                    {item.translation ? <em>{item.translation}</em> : null}
+                                    <span>
+                                        {item.term}
+                                        {item.translation ? <em>{item.translation}</em> : null}
+                                    </span>
+                                    {onAddTerm ? (
+                                        <button
+                                            type='button'
+                                            className='paper-insights__save-term'
+                                            aria-label={
+                                                savedTerms.has(item.term.toLocaleLowerCase())
+                                                    ? `已收录术语：${item.term}`
+                                                    : `加入词库：${item.term}`
+                                            }
+                                            disabled={
+                                                savedTerms.has(item.term.toLocaleLowerCase()) || Boolean(savingTerm)
+                                            }
+                                            onClick={() => addTerm(item)}
+                                        >
+                                            {savedTerms.has(item.term.toLocaleLowerCase()) ? (
+                                                <PiCheck aria-hidden='true' />
+                                            ) : savingTerm === item.term ? (
+                                                <PiCircleNotch
+                                                    className='paper-insights__spinner'
+                                                    aria-hidden='true'
+                                                />
+                                            ) : (
+                                                <PiPlus aria-hidden='true' />
+                                            )}
+                                        </button>
+                                    ) : null}
                                 </dt>
-                                {item.annotation ? <dd>{item.annotation}</dd> : null}
+                                {item.annotation ? (
+                                    <dd>
+                                        <AcademicMarkup value={item.annotation} />
+                                    </dd>
+                                ) : null}
                                 {item.pageNumbers.length ? (
                                     <dd className='paper-insights__pages'>
                                         {item.pageNumbers.map((pageNumber) => (

@@ -9,7 +9,7 @@ afterEach(() => {
 });
 
 describe('主窗口标题栏', () => {
-    it('显示产品版本并提供文件翻译、阅读和设置快捷入口', () => {
+    it('显示产品版本并在顶部提供翻译、文件翻译、阅读和设置全部入口', () => {
         vi.useFakeTimers();
         const onNavigate = vi.fn();
         const dispatch = vi.spyOn(globalThis, 'dispatchEvent');
@@ -20,7 +20,9 @@ describe('主窗口标题栏', () => {
             />
         );
 
-        expect(screen.getByText('v4.5.9')).toBeTruthy();
+        expect(screen.getByText('v4.6.0')).toBeTruthy();
+        fireEvent.click(screen.getByRole('button', { name: '翻译' }));
+        expect(onNavigate).toHaveBeenCalledWith('translate');
         fireEvent.click(screen.getByRole('button', { name: '文件翻译' }));
         expect(onNavigate).toHaveBeenCalledWith('translate');
         vi.advanceTimersByTime(31);

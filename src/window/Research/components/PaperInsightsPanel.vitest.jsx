@@ -8,9 +8,12 @@ afterEach(cleanup);
 const payload = {
     summary: '本文研究热力学约束如何改善代谢通量分析。',
     researchQuestion: '如何识别热力学不可行通路？',
+    contributions: ['建立统一的 $Sv=0$ 热力学约束框架'],
     methods: ['构建热力学约束模型'],
     findings: ['能够排除不可行的反应通路'],
+    implications: ['提高基因组尺度模型的物理一致性'],
     limitations: ['参数依赖实验测量'],
+    formulas: [{ latex: '$$Sv=0$$', explanation: '$S$ 为化学计量矩阵，$v$ 为反应通量。' }],
     terms: [
         {
             term: 'metabolic flux',
@@ -24,7 +27,7 @@ const payload = {
 describe('论文概要面板', () => {
     it('兼容后端 payload 嵌套结构并可跳转术语页码', () => {
         const onJump = vi.fn();
-        render(
+        const { container } = render(
             <PaperInsightsPanel
                 insights={{ status: 'ready', payload, model: 'gemma4:e4b-it-qat' }}
                 onJump={onJump}
@@ -33,8 +36,24 @@ describe('论文概要面板', () => {
 
         expect(screen.getByText(payload.summary)).toBeTruthy();
         expect(screen.getByText('代谢通量')).toBeTruthy();
+        expect(screen.getByText('核心公式')).toBeTruthy();
+        expect(container.querySelector('.katex')).not.toBeNull();
         fireEvent.click(screen.getByRole('button', { name: '跳转到第 5 页' }));
         expect(onJump).toHaveBeenCalledWith(5);
+    });
+
+    it('可将自动提取的重要术语选择性加入论文词库', async () => {
+        const onAddTerm = vi.fn().mockResolvedValue(undefined);
+        render(
+            <PaperInsightsPanel
+                insights={{ status: 'ready', payload }}
+                glossaryEntries={[]}
+                onAddTerm={onAddTerm}
+            />
+        );
+
+        fireEvent.click(screen.getByRole('button', { name: '加入词库：metabolic flux' }));
+        await waitFor(() => expect(onAddTerm).toHaveBeenCalledWith(payload.terms[0]));
     });
 
     it('兼容演示环境的平铺结构', () => {

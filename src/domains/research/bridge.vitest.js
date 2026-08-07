@@ -25,6 +25,7 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({ open: mocks.openDialog }));
 vi.mock('../translation', () => ({ synthesizeSpeech: mocks.synthesizeSpeech }));
 
 import {
+    analyzePaperFigure,
     askPaper,
     archivePapers,
     cancelPaperInsights,
@@ -32,6 +33,7 @@ import {
     createProject,
     defineTerm,
     deleteProject,
+    deleteGlossaryEntry,
     generatePaperInsights,
     generateChapterInsights,
     getChapterInsights,
@@ -44,6 +46,7 @@ import {
     replaceDocumentOutline,
     isTranslationActive,
     listChapterInsights,
+    listGlossary,
     listPapers,
     listPendingPaperInsights,
     listProjects,
@@ -51,6 +54,7 @@ import {
     openPdfExternalUrl,
     restorePapers,
     setPaperProjects,
+    saveGlossaryEntry,
     subscribeToDocumentDrops,
     subscribeToPdfDrops,
     translateSelection,
@@ -296,6 +300,78 @@ describe('论文阅读器选区解释 bridge', () => {
             })
         ).rejects.toMatchObject({ name: 'AbortError' });
         expect(mocks.invoke).not.toHaveBeenCalled();
+    });
+});
+
+describe('论文词库与图像分析 bridge', () => {
+    it('词库通过结构化命令增删查，并保留论文范围', async () => {
+        mocks.invoke
+            .mockResolvedValueOnce([{ id: 'g1', paperId: 'paper-1', term: 'flux' }])
+            .mockResolvedValueOnce({ id: 'g1', paperId: 'paper-1', term: 'flux', translation: '通量' })
+            .mockResolvedValueOnce(undefined);
+
+        await listGlossary({ paperId: 'paper-1', query: 'Flux' });
+        await saveGlossaryEntry({ paperId: 'paper-1', term: 'flux', translation: '通量' });
+        await deleteGlossaryEntry('g1');
+
+        expect(mocks.invoke).toHaveBeenNthCalledWith(1, 'research_list_glossary', {
+            paperId: 'paper-1',
+            query: 'flux',
+        });
+        expect(mocks.invoke).toHaveBeenNthCalledWith(
+            2,
+            'research_save_glossary_entry',
+            expect.objectContaining({ entry: expect.objectContaining({ paperId: 'paper-1', term: 'flux' }) })
+        );
+        expect(mocks.invoke).toHaveBeenNthCalledWith(3, 'research_delete_glossary_entry', { entryId: 'g1' });
+    });
+
+    it('图像分析把整页图像、右键焦点和论文上下文交给 Gemma', async () => {
+        class TestImage {
+            naturalWidth = 100;
+            naturalHeight = 200;
+            decode = vi.fn().mockResolvedValue(undefined);
+        }
+        vi.stubGlobal('Image', TestImage);
+        const drawImage = vi.fn();
+        const context = {
+            drawImage,
+            save: vi.fn(),
+            restore: vi.fn(),
+            beginPath: vi.fn(),
+            arc: vi.fn(),
+            moveTo: vi.fn(),
+            lineTo: vi.fn(),
+            stroke: vi.fn(),
+            set strokeStyle(_value) {},
+            set lineWidth(_value) {},
+            set shadowColor(_value) {},
+            set shadowBlur(_value) {},
+        };
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(context);
+        vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/png;base64,FOCUSED');
+        mocks.invoke.mockResolvedValue({ analysis: '### 图像主旨\n稳态通量关系', model: 'gemma4:e4b' });
+
+        await analyzePaperFigure({
+            paperId: 'paper-1',
+            paperTitle: 'TMFA',
+            pageNumber: 3,
+            pageText: 'Figure 1 describes flux balance.',
+            imageDataUrl: 'data:image/png;base64,ORIGINAL',
+            focusX: 0.25,
+            focusY: 0.75,
+        });
+
+        expect(drawImage).toHaveBeenCalledOnce();
+        expect(mocks.invoke).toHaveBeenCalledWith('research_analyze_figure', {
+            paperId: 'paper-1',
+            paperTitle: 'TMFA',
+            pageNumber: 3,
+            pageText: 'Figure 1 describes flux balance.',
+            imageDataUrl: 'data:image/png;base64,FOCUSED',
+            focusX: 0.25,
+            focusY: 0.75,
+        });
     });
 });
 
