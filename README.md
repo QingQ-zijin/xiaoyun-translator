@@ -1,180 +1,194 @@
 <div align="center">
-  <img src="./public/icon.png" width="112" alt="小允翻译图标">
-  <h1>小允翻译</h1>
-  <p><strong>把划词翻译、公式 OCR 与本地 AI 文献阅读放进同一个桌面工作台。</strong></p>
-  <p>
-    <a href="https://github.com/QingQ-zijin/xiaoyun-translator/releases/latest">下载 Windows 版</a>
-    · <a href="./docs/GETTING_STARTED.md">快速上手</a>
-    · <a href="./docs/CROSS_PLATFORM.md">跨平台状态</a>
-    · <a href="./docs/OLLAMA.md">Ollama 接入</a>
-    · <a href="./docs/ACADEMIC_WORKFLOW.md">学术阅读指南</a>
-  </p>
-  <p>
-    <img alt="Windows 10 22H2+/11 x64" src="https://img.shields.io/badge/Windows-10%2022H2%2B%20%7C%2011%20x64-2563eb?logo=windows">
-    <img alt="Local AI" src="https://img.shields.io/badge/AI-Local%20Ollama-7c3aed">
-    <img alt="License GPL-3.0" src="https://img.shields.io/badge/License-GPL--3.0-16a34a">
-  </p>
+  <img src="./public/icon.png" width="112" alt="小允翻译——论文阅读器图标">
 </div>
 
-![小允论文阅读器：本地概要、关键术语与 PDF 阅读](./docs/screenshots/academic-reader.png)
+# 小允翻译——论文阅读器
 
-> 截图中的论文、作者、数据与译文均为专门制作的合成演示内容，不代表真实研究结论。
+<div align="center">
+  <strong>把划词翻译和论文阅读放进同一个本地 AI 工作流。</strong><br>
+  Academic Translator · AI Paper Reader · PDF Translation · Local Ollama
+</div>
 
-## Windows：四步完成第一次翻译
+<div align="center">
+  <a href="https://github.com/QingQ-zijin/xiaoyun-translator/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/QingQ-zijin/xiaoyun-translator?display_name=tag&sort=semver"></a>
+  <a href="https://github.com/QingQ-zijin/xiaoyun-translator/actions/workflows/cross-platform.yml"><img alt="Cross-platform CI" src="https://github.com/QingQ-zijin/xiaoyun-translator/actions/workflows/cross-platform.yml/badge.svg"></a>
+  <img alt="Windows" src="https://img.shields.io/badge/Windows-10%2022H2%2B-2563eb?logo=windows">
+  <img alt="macOS" src="https://img.shields.io/badge/macOS-Intel%20%7C%20Apple%20Silicon-111827?logo=apple">
+  <img alt="Linux" src="https://img.shields.io/badge/Linux-x86__64-f59e0b?logo=linux&logoColor=white">
+  <a href="./LICENSE"><img alt="GPL-3.0" src="https://img.shields.io/github/license/QingQ-zijin/xiaoyun-translator"></a>
+</div>
 
-Ollama 是一个**独立安装、在后台运行的本地 AI 程序**。小允翻译负责调用它完成翻译、OCR 和文献分析；两者都在本机运行，**不需要账号或 API Key**。
+小允翻译——论文阅读器是一款面向论文、教材和技术文档的本地优先桌面应用。它既是能在任意软件中调用的**学术划词／截图翻译器**，也是支持 PDF、扫描件、Markdown、DOCX 与 TeX 的**AI 论文阅读器**。翻译、视觉理解、术语解释和文献概要默认由本机 [Ollama](https://ollama.com/) 驱动，不需要账号或云端 API Key。
 
-开始前请确认：Windows 10 22H2 或 Windows 11 x64、16 GB 以上内存，以及至少 12 GB 可用磁盘空间（推荐 15 GB）。
+## ✨ 为什么值得使用
 
-1. 从 [Releases](https://github.com/QingQ-zijin/xiaoyun-translator/releases/latest) 下载 `xiaoyun-translator_*_x64-setup.exe` 并安装。若 SmartScreen 拦截，请先核对下载来源和 Release 中的 SHA-256，再选择“更多信息 → 仍要运行”。
-2. 首次打开小允翻译会出现“先接入本地 Ollama”。点击向导中的主按钮，完成 [Ollama Windows 官方安装](https://ollama.com/download/windows)；安装程序通常会让 Ollama 在后台运行。
-3. 返回小允翻译。向导会自动检测 Ollama 并启动本地服务；你只需确认“下载 Gemma 4 E4B（约 6.1 GB）”。等待“本地 AI 已准备好”，再点击“开始使用”。
-4. 打开 Windows 记事本，输入并选中 `Hello, world.`，按 `Ctrl+D`；出现中文翻译浮窗即表示接入成功。
+| 划词翻译                                                                              | 论文阅读器                                                         |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| 在浏览器、Word、PDF 阅读器等外部软件选中文字，按 `Ctrl+D`（macOS 为 `Command+D`）即译 | 导入论文或长篇书籍，保留阅读进度、项目分类、批注、高亮、摘录和术语 |
+| `Ctrl+E`／`Command+E` 截图识别文字、公式和图表                                        | 在 PDF 内划词即译，结合标题、章节、上下文和领域术语消歧            |
+| 流式输出，保留 Markdown、LaTeX、引用、变量与单位                                      | 生成一次并缓存全文／章节概要、研究问题、方法、局限和关键术语       |
+| 单词模式提供词性、音标、多义项和语境解释                                              | 图片右键调用 Gemma 视觉能力，结合邻近正文解释图、表和公式          |
 
-第一次请求需要加载模型，可能比后续翻译慢。若你跳过了首次向导，或向导没有继续，请打开“设置 → Ollama”点击“重新检测”；再确认 Ollama 和小允翻译都仍在系统托盘运行，依次重启两者后重试。完整说明见[快速上手](./docs/GETTING_STARTED.md)和[Ollama 图形化排错](./docs/OLLAMA.md#新手图形化排错)。
+> 核心定位：**学术翻译（academic translation）+ 论文阅读器（paper/PDF reader）**，不是一个堆叠通用聊天服务的工具箱。
 
-## 为什么是小允翻译
+## 📥 下载 4.6.5
 
-小允翻译面向需要长期阅读论文、教材和技术文档的用户。它不把“翻译”做成孤立的文本框，而是让术语、上下文、公式、批注和阅读进度留在同一条研究工作流里。
+前往 [GitHub Releases](https://github.com/QingQ-zijin/xiaoyun-translator/releases/latest) 下载与你的系统匹配的文件。
 
--   **Ctrl+D 全局划词翻译**：在浏览器、Word、PDF 阅读器等应用中选中文字即可呼出轻量窗口；支持跟随鼠标、固定、复制和本地朗读。macOS 默认使用 `Command+D`。
--   **Ctrl+E 截图翻译 / 公式 OCR**：框选图片、扫描页或公式，由 Gemma 4 多模态模型识别并翻译。macOS 默认使用 `Command+E`。
--   **学术语境翻译**：可使用论文标题、选区前后文和已生成术语辅助消歧，减少 `flux` 等领域词被误译。
--   **Markdown 与 LaTeX**：译文保留粗体、列表、行内/块级公式、变量、单位、引文和数字，并直接渲染。
--   **AI 论文与书籍阅读器**：导入 PDF、Markdown、DOCX 或 TeX；论文生成全文概要，书籍建立目录并按章节生成摘要与关键术语。
--   **研究资料管理**：项目分类、标签、批量归档、彩色高亮、摘录、笔记、页码回链、引用关系和阅读进度恢复。
--   **签名应用内更新**：启动时静默检查新版本，也可在设置中手动检查；下载完成后验证签名并一键安装重启。
--   **本地优先**：翻译、OCR、论文分析和 Windows 朗读均在本机完成，不需要云端 API Key。
+| 系统                     | 推荐文件                         | 状态与说明                                           |
+| ------------------------ | -------------------------------- | ---------------------------------------------------- |
+| Windows 10 22H2 / 11 x64 | `*_windows-x64-setup.exe`        | 主要验证平台；支持应用内自动更新                     |
+| macOS Apple Silicon      | `*_macos-arm64.dmg`              | 原生 arm64；支持应用内自动更新；当前未做 Apple 公证  |
+| macOS Intel              | `*_macos-x64.dmg`                | 原生 x86_64；支持应用内自动更新；当前未做 Apple 公证 |
+| Linux x86_64             | `*_linux-x64.AppImage` 或 `.deb` | 支持应用内自动更新；桌面集成依发行版而异             |
 
-## 看得见的研究工作流
+Release 同时提供 SHA-256 校验文件和 Tauri 更新签名。macOS 首次打开若被 Gatekeeper 拦截，请在“系统设置 → 隐私与安全性”确认来源后手动允许；这不等同于 Apple 公证。Linux 的全局划词在 X11 下兼容性更好，Wayland 受合成器安全策略限制，详见[跨平台说明](./docs/CROSS_PLATFORM.md)。
 
-### 学术翻译：Markdown、LaTeX 与术语一起保留
+## 🚀 五分钟完成第一次翻译
 
-![学术翻译界面](./docs/screenshots/academic-translation.png)
+1. 安装并启动 [Ollama](https://ollama.com/download)。Ollama 是独立运行的本地模型服务，小允翻译通过 `127.0.0.1:11434` 与它通信。
+2. 安装并打开小允翻译。首次向导会自动检测 Ollama；Windows 和 macOS 可直接从界面尝试启动服务，Linux 会显示对应命令。
+3. 确认下载默认的 Gemma 4 E4B 模型（约 6.1 GB）。下载结束后，向导会预热模型并显示“本地 AI 已准备好”。
+4. 在任意应用中选中 `Thermodynamic flux analysis`，按 `Ctrl+D`；macOS 按 `Command+D`。
+5. 打开“论文库”，导入一篇 PDF，在正文中划词即可获得结合论文上下文的翻译。
 
-### 论文内划词即译，不离开当前页面
+第一次请求需要把模型载入内存，会比后续请求慢。若检测失败，请进入“设置 → Ollama → 重新检测”，或参照[零基础接入与排错](./docs/OLLAMA.md)。模型下载需要约 6.1 GB 空间，建议预留至少 12 GB。
 
-![论文划词翻译浮窗](./docs/screenshots/selection-translation.png)
+## 🧭 两个核心入口
 
-### 用项目、标签与阅读进度组织文献
+### 1. 随处可用的学术翻译
 
-![文献库与项目管理](./docs/screenshots/literature-library.png)
+-   **外部划词翻译**：窗口跟随鼠标出现，可移动、固定、复制和朗读；连续调用只保留最新请求。
+-   **截图翻译与 OCR**：识别普通文本、上下标、LaTeX 公式和图表；适合扫描页及无法复制的网页。
+-   **学术 Prompt**：原文只作为待翻译数据，不执行其中的命令；限制助手式跑题与异常扩写。
+-   **语境术语**：结合论文标题、章节和上下文处理 `flux`、`translation` 等领域多义词，同时保留格式。
+-   **全文翻译**：在“翻译 → 文件翻译”拖入文档，后台分段翻译并导出完整 PDF。
 
-### 三步接入本地 Ollama
+### 2. AI 驱动的论文与书籍阅读器
 
-![Ollama 首次接入向导](./docs/screenshots/ollama-setup.png)
+-   **文献管理**：项目分类、标签、批量归档、导入日期／最近打开排序和回收站。
+-   **长文档阅读**：页面虚拟化、目录和章节跳转、链接历史、搜索、触摸板缩放与阅读进度恢复。
+-   **书籍模式**：长篇 PDF 可按章节建立目录，分别保存章节摘要、关键术语和阅读位置。
+-   **研究笔记**：高亮、摘录、彩色批注、文中标记、右键笔记、撤销和定位；标注不写回原 PDF。
+-   **图片与公式理解**：选中或右键图表，Gemma 结合页面图像、图注和邻近正文进行视觉解读。
+-   **本地词库**：从选区或论文术语面板保存词汇，记录音标、词性、释义、例句、来源论文和页码。
 
-## 平台与发布状态
+## 🖼️ 界面预览
 
-Windows 10 22H2/11 x64 仍是当前主要验证和 Release 发布平台。CI 另行构建 macOS Apple Silicon、macOS Intel 与 Linux x64 产物，但它们目前只作为 GitHub Actions workflow artifacts 提供，尚未在对应实体设备和桌面环境上完成端到端验证。
+### 论文阅读、翻译与笔记
 
--   macOS 产物没有 Developer ID 签名且未公证；划词和截图还需要分别授予“辅助功能”和“屏幕录制”权限；
--   Linux 产物未签名；Wayland 下的全局快捷键、划词和截图会受合成器与 portal 限制，X11 也尚未完成完整实机矩阵验证；
--   各平台的 artifact 名称、SHA-256 校验、运行依赖和 Ollama 安装步骤见[跨平台试验构建说明](./docs/CROSS_PLATFORM.md)。
+![小允翻译论文阅读器：PDF 阅读、学术划词翻译和研究笔记](./docs/screenshots/academic-reader.png)
 
-现有 Windows tag Release 流程保持独立，macOS/Linux workflow 不会把未签名产物发布到 Release。
+### 学术划词翻译
 
-## Windows Release 运行要求
+![小允翻译外部划词翻译浮窗](./docs/screenshots/selection-translation.png)
 
-| 项目     | 最低可运行                       | 推荐体验                    |
-| -------- | -------------------------------- | --------------------------- |
-| 操作系统 | Windows 10 22H2 x64              | Windows 11 x64              |
-| 内存     | 16 GB                            | 24 GB 或以上                |
-| 显卡     | 可使用 CPU，但未作为流畅体验验证 | NVIDIA GPU，8 GB 显存或以上 |
-| 磁盘     | 安装包之外至少预留 12 GB         | 预留 15 GB 或以上           |
-| 本地模型 | `gemma4:e4b-it-qat`，约 6.1 GB   | 同左，保持单模型运行        |
+### 论文库与项目管理
 
-8 GB 显存可以运行当前 QAT 模型，但长上下文、扫描页 OCR 与大型 PDF 会更紧张。软件采用单一 Gemma 4 runner，避免同时预热多个模型浪费显存。
+![小允翻译论文库、项目、标签和阅读进度](./docs/screenshots/literature-library.png)
 
-## 文献能力
+### 无命令行的 Ollama 接入
 
-| 能力     | 论文                                       | 书籍                                   |
-| -------- | ------------------------------------------ | -------------------------------------- |
-| 导入格式 | PDF、Markdown、DOCX、TeX                   | PDF、Markdown、DOCX、TeX               |
-| 结构整理 | 全文概要、研究问题、方法、发现、局限、术语 | 独立目录、章节跳转、章节摘要、章节术语 |
-| 扫描件   | 当前页 OCR、可暂停的整篇 OCR               | 同左，适合长扫描书分批处理             |
-| 阅读辅助 | 划词翻译、词典、解释、摘录、笔记、高亮     | 同左                                   |
-| 持久化   | 阅读进度、标注、概要和索引保存在本机       | 阅读进度、目录和章节结果保存在本机     |
+![小允翻译 Ollama 首次接入向导](./docs/screenshots/ollama-setup.png)
 
-PDF 阅读由 PDF.js 提供。超长文档按页虚拟化，文本索引在后台分批建立；扫描 PDF 需要 OCR，因此首次处理会比含文本层的 PDF 慢。
+## 🧠 本地学术工作流
 
-## 隐私与数据
+```mermaid
+flowchart LR
+    accTitle: 小允翻译的本地学术阅读工作流
+    accDescr: 从导入文献，经本地解析、Gemma 翻译与理解，到批注、词库和可追溯研究输出的流程。
 
--   Ollama 默认连接 `http://127.0.0.1:11434`。
--   文献原文件、索引、概要、翻译缓存、项目、标签、笔记和标注均保存在本机。
--   Windows 朗读使用系统本地语音，不调用 Lingva 等网络 TTS。
--   设置远程 Ollama 地址时，发送到该地址的内容将受远程设备和网络环境影响；请自行确认数据边界。
--   软件不会静默下载模型。6.1 GB 模型下载前会再次确认，并显示进度，可中途取消。
+    Import["导入论文或书籍"] --> Parse["解析文本、目录与页面"]
+    Parse --> Read["阅读、搜索与划词"]
+    Read --> Gemma["本地 Gemma 翻译与视觉理解"]
+    Gemma --> Notes["高亮、摘录与笔记"]
+    Gemma --> Terms["关键术语与个人词库"]
+    Notes --> Research["项目化研究记录"]
+    Terms --> Research
 
-## 常见问题
-
-**Ctrl+D / Ctrl+E 没有反应**
-
-确认软件仍在系统托盘运行；在“设置 → 快捷键”检查组合键是否与浏览器或其他软件冲突。修改快捷键后点击“保存设置”。
-
-**Ollama 无法连接**
-
-在 PowerShell 执行：
-
-```powershell
-ollama list
-curl.exe http://127.0.0.1:11434/api/tags
+    classDef source fill:#eef2ff,stroke:#6366f1,color:#1e1b4b
+    classDef ai fill:#f5f3ff,stroke:#8b5cf6,color:#3b0764
+    classDef output fill:#ecfdf5,stroke:#10b981,color:#064e3b
+    class Import,Parse,Read source
+    class Gemma ai
+    class Notes,Terms,Research output
 ```
 
-若命令失败，请先启动 Ollama，再回到软件点击“重新检测”。更多情况见[故障排查](./docs/OLLAMA.md#故障排查)。
+PDF 渲染与文本层基于 [PDF.js](https://mozilla.github.io/pdf.js/)[^pdfjs]；桌面跨平台能力和更新机制基于 [Tauri 2](https://v2.tauri.app/)[^tauri]；本地模型通过 [Ollama API](https://docs.ollama.com/api/introduction)[^ollama-api] 调用。
 
-**PDF 显示空白**
+## 🖥️ 跨平台支持
 
-先确认文件能在 Edge 中打开。扫描 PDF 请选择“当前页 OCR”或后台整篇 OCR；JBIG2 扫描书已由内置 PDF.js WASM 解码支持。
+| 能力                 |       Windows        |       macOS        |        Linux         |
+| -------------------- | :------------------: | :----------------: | :------------------: |
+| 论文／书籍阅读器     |          ✅          |         ✅         |          ✅          |
+| PDF 内划词翻译       |          ✅          |         ✅         |          ✅          |
+| 外部全局划词         |          ✅          | ✅ 需辅助功能权限  |     ⚠️ X11 推荐      |
+| 截图 OCR             | ✅ 系统 OCR + Gemma  |      ✅ Gemma      | ✅ Tesseract + Gemma |
+| 本地朗读             | ✅ SpeechSynthesizer |      ✅ `say`      |    ✅ `espeak-ng`    |
+| 应用内签名更新       |          ✅          |         ✅         |     ✅ AppImage      |
+| 安装包代码签名／公证 | ⚠️ 未做 Authenticode | ⚠️ 未做 Apple 公证 |        不适用        |
 
-**安装时提示未知发布者**
+macOS 需要授予辅助功能和屏幕录制权限。Linux `.deb` 推荐 Ubuntu 22.04+ 或兼容发行版；AppImage 需要系统提供 WebKitGTK 及相关桌面库。更完整的权限、依赖和 Wayland 边界见[跨平台说明](./docs/CROSS_PLATFORM.md)。
 
-Windows Release 当前未签名，这是已知发布限制。只从本仓库 Releases 下载，并核对 Release 提供的校验值。macOS/Linux workflow artifacts 同样未签名，其中 macOS 还未公证；试验方式和风险边界见[跨平台说明](./docs/CROSS_PLATFORM.md)。
+## 🔒 隐私与资源占用
 
-## 开发
+-   翻译、OCR、论文概要、术语解释和问答默认只访问本机 Ollama。
+-   文献、批注、阅读进度、翻译缓存和词库存储在本地 `research.db` 与用户选择的文献库目录。
+-   应用不会自动把原 PDF、选区或笔记同步到云端，也不会修改原始文件。
+-   默认只预热用户启用的 Gemma 模型；其他模型不会常驻占用显存。
+-   自动更新仅下载由 Tauri 更新密钥签名的包；签名验证不等同于操作系统代码签名。[^tauri-updater]
 
-```powershell
+## 🛠️ 从源码开发
+
+### 环境
+
+-   Node.js 22+
+-   pnpm 10.18.1
+-   Rust stable
+-   对应平台的 [Tauri 2 系统依赖](https://v2.tauri.app/start/prerequisites/)
+
+### 启动与验证
+
+```bash
 git clone https://github.com/QingQ-zijin/xiaoyun-translator.git
 cd xiaoyun-translator
-pnpm install
-pnpm test
+pnpm install --frozen-lockfile
 pnpm tauri dev
 ```
 
-构建 Windows 安装包：
-
-```powershell
+```bash
+pnpm test
 pnpm build
 cargo test --manifest-path src-tauri/Cargo.toml --all-targets
-pnpm tauri build
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 ```
 
-macOS 与 Linux 的依赖、测试矩阵和 bundle 命令见 [Cross-platform CI](./.github/workflows/cross-platform.yml) 与[跨平台构建说明](./docs/CROSS_PLATFORM.md)。CI 产物只用于试验，不会自动发布到 Release。
+本地打包命令与各平台依赖见[跨平台构建指南](./docs/CROSS_PLATFORM.md)，发布流程见[维护者发布指南](./docs/RELEASING.md)。
 
-维护者发布带签名的一键更新时，请先阅读[发布与应用内更新](./docs/RELEASING.md)。
+## 📚 文档
 
-主要技术栈：Tauri 2、Rust、React 18、PDF.js、SQLite FTS5、Ollama、KaTeX。
+| 文档                                      | 适合谁                               |
+| ----------------------------------------- | ------------------------------------ |
+| [快速上手](./docs/GETTING_STARTED.md)     | 第一次安装、接入 Ollama、测试快捷键  |
+| [Ollama 接入与排错](./docs/OLLAMA.md)     | 模型未启动、下载失败或显存占用异常   |
+| [跨平台说明](./docs/CROSS_PLATFORM.md)    | macOS 权限、Linux 依赖、Wayland 限制 |
+| [学术工作流](./docs/ACADEMIC_WORKFLOW.md) | 论文、书籍、批注、词库和项目管理     |
+| [发布指南](./docs/RELEASING.md)           | 版本维护者与 Release 检查            |
 
-## 项目来源、兼容性与许可证
+## 🤝 贡献与反馈
 
-本项目基于 [Pot Desktop 3.0.7](https://github.com/pot-app/pot-desktop) 进行深度改造，保留并感谢 Pot 及其贡献者的工作。小允翻译继续依据 [GNU GPL v3](./LICENSE) 发布；分发修改版本时请遵守 GPL 对源代码与许可证的要求。
+欢迎提交 [Issue](https://github.com/QingQ-zijin/xiaoyun-translator/issues) 或 Pull Request。报告问题时请附上操作系统、应用版本、Ollama 版本、复现步骤和经过脱敏的日志；请勿上传含隐私的论文、截图或剪贴板内容。
 
-为保留已有 Pot 数据，Windows 版本暂时沿用 bundle identifier `com.pot-app.desktop`。这意味着：
+本项目基于 [Pot Desktop 3.0.7](https://github.com/pot-app/pot-desktop) 深度改造，感谢 Pot 及其贡献者。Windows 为保留已有 Pot 数据，暂时沿用 bundle identifier `com.pot-app.desktop`；不建议与原版 Pot 同时运行。macOS 与 Linux 使用独立 identifier。
 
--   **不建议与原版 Pot 并行安装或同时运行**；
--   两者可能共享配置/数据位置、托盘状态或快捷键；
--   安装小允翻译前建议备份重要配置和文献库。
+## 📄 许可证
 
-macOS/Linux 平台配置使用独立 identifier `io.github.xiaoyun0922.translator`，正常情况下不会与原版 Pot 共用应用数据。它们仍是未完成实机验证的试验构建，升级前同样建议备份。
+源代码依据 [GNU GPL v3](./LICENSE) 发布。Ollama 与 Gemma 模型分别受其上游许可证和模型条款约束，本项目不重新分发模型权重。
 
-Ollama 与 Gemma 模型各自适用其上游许可证和使用条款，本仓库不重新分发模型文件。
+[^pdfjs]: Mozilla, “PDF.js — A general-purpose, web standards-based platform for parsing and rendering PDFs.”
 
-## 参与贡献
+[^tauri]: Tauri, “Tauri 2 Documentation,” desktop application framework documentation.
 
-欢迎提交 Issue、复现步骤、脱敏样例文档和 Pull Request。报告问题时请附：
+[^ollama-api]: Ollama, “API Introduction,” local API available by default at `http://localhost:11434/api`.
 
-1. 操作系统版本、CPU 架构，以及 Linux 的桌面环境和 X11/Wayland 会话类型；
-2. 软件版本与 Ollama 版本；
-3. `ollama list` 中的模型名；
-4. 可复现步骤和不含隐私信息的截图；
-5. 问题属于 Ctrl+D、Ctrl+E、论文阅读还是模型输出。
+[^tauri-updater]: Tauri, “Updater Plugin,” signed update artifacts and platform update bundles.

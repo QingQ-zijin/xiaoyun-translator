@@ -79,7 +79,9 @@ export default function useAppUpdater({
     processLoader = loadProcessPlugin,
     appApiLoader = loadAppApi,
 } = {}) {
-    const supported = runtime && platform === DESKTOP_PLATFORM.WINDOWS;
+    const supported =
+        runtime &&
+        [DESKTOP_PLATFORM.WINDOWS, DESKTOP_PLATFORM.MACOS, DESKTOP_PLATFORM.LINUX].includes(platform);
     const [state, setState] = useState(() => initialState(runtime));
     const mountedRef = useRef(true);
     const updateRef = useRef(null);

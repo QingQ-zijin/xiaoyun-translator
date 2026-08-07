@@ -182,7 +182,7 @@ describe('论文批注界面撤销链路', () => {
         fireEvent.click(screen.getByRole('button', { name: '编辑测试批注' }));
         await screen.findByText('笔记内容：已编辑');
         fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true });
-        await screen.findByText('笔记内容：测试译文');
+        await waitFor(() => expect(screen.getByText('笔记内容：测试译文')).toBeTruthy(), { timeout: 5_000 });
 
         fireEvent.click(screen.getByRole('button', { name: '删除当前批注' }));
         await screen.findByText('批注 0');

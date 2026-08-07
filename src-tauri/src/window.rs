@@ -873,7 +873,7 @@ pub fn main_window(route: Option<&str>) -> Result<WebviewWindow, String> {
         window
     } else {
         WebviewWindowBuilder::new(&app, "main", WebviewUrl::App("index.html".into()))
-            .title("小允翻译")
+            .title("小允翻译——论文阅读器")
             .inner_size(1440.0, 920.0)
             .min_inner_size(1040.0, 680.0)
             // 主窗口使用统一的应用内标题栏，确保 Windows/macOS/Linux 的版本号、

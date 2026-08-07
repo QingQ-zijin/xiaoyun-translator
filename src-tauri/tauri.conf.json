@@ -17,8 +17,8 @@
             "providerShortName": null,
             "signingIdentity": null
         },
-        "longDescription": "小允专属的学术翻译与 AI 论文阅读器",
-        "shortDescription": "小允翻译与 AI 论文阅读器",
+        "longDescription": "小允翻译——论文阅读器：本地优先的学术翻译、PDF 论文与书籍阅读器",
+        "shortDescription": "小允翻译——论文阅读器",
         "externalBin": [],
         "resources": [],
         "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
@@ -31,9 +31,9 @@
             }
         }
     },
-    "productName": "小允翻译",
+    "productName": "小允翻译——论文阅读器",
     "mainBinaryName": "小允翻译",
-    "version": "4.6.0",
+    "version": "4.6.5",
     "identifier": "com.pot-app.desktop",
     "plugins": {
         "updater": {

@@ -7,21 +7,24 @@ import test from 'node:test';
 const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
 const readProjectFile = (relativePath) => readFileSync(path.join(repoRoot, relativePath), 'utf8');
 
-test('用户可见品牌统一为小允翻译并保留原配置目录', () => {
+test('用户可见品牌统一为小允翻译——论文阅读器并保留原配置目录', () => {
     const tauriConfig = JSON.parse(readProjectFile('src-tauri/tauri.conf.json'));
 
-    assert.equal(tauriConfig.productName, '小允翻译');
+    assert.equal(tauriConfig.productName, '小允翻译——论文阅读器');
     assert.equal(tauriConfig.identifier, 'com.pot-app.desktop');
-    assert.equal(tauriConfig.bundle.shortDescription, '小允翻译与 AI 论文阅读器');
+    assert.equal(tauriConfig.bundle.shortDescription, '小允翻译——论文阅读器');
     assert.deepEqual(tauriConfig.plugins?.updater?.endpoints, [
         'https://github.com/QingQ-zijin/xiaoyun-translator/releases/latest/download/latest.json',
     ]);
     assert.match(tauriConfig.plugins?.updater?.pubkey ?? '', /^[A-Za-z0-9+/=]{100,}$/u);
     assert.equal(tauriConfig.plugins?.updater?.windows?.installMode, 'passive');
 
-    assert.match(readProjectFile('index.html'), /<title>小允翻译<\/title>/u);
-    assert.match(readProjectFile('daemon.html'), /<title>小允翻译<\/title>/u);
-    assert.match(readProjectFile('src/window/Config/pages/About/index.jsx'), /<h1[^>]*>小允翻译<\/h1>/u);
+    assert.match(readProjectFile('index.html'), /<title>小允翻译——论文阅读器<\/title>/u);
+    assert.match(readProjectFile('daemon.html'), /<title>小允翻译——论文阅读器<\/title>/u);
+    assert.match(
+        readProjectFile('src/window/Config/pages/About/index.jsx'),
+        /<h1[^>]*>小允翻译——论文阅读器<\/h1>/u,
+    );
 });
 
 test('界面使用专属图标并通过签名更新器发布新版本', () => {
@@ -58,7 +61,13 @@ test('界面使用专属图标并通过签名更新器发布新版本', () => {
     assert.match(releaseWorkflow, /uploadUpdaterJson: true/u);
     assert.match(releaseWorkflow, /updaterJsonPreferNsis: true/u);
     assert.match(releaseWorkflow, /releaseDraft: true/u);
-    assert.match(releaseWorkflow, /gh release edit \$env:RELEASE_TAG --draft=false --latest/u);
+    assert.match(releaseWorkflow, /needs: \[windows, macos, linux\]/u);
+    assert.match(releaseWorkflow, /manifest\.platforms\['darwin-aarch64'\]/u);
+    assert.match(releaseWorkflow, /manifest\.platforms\['darwin-x86_64'\]/u);
+    assert.match(releaseWorkflow, /manifest\.platforms\['linux-x86_64'\]/u);
+    assert.match(releaseWorkflow, /gh release edit "\$\{RELEASE_TAG\}"/u);
+    assert.match(releaseWorkflow, /--draft=false/u);
+    assert.match(releaseWorkflow, /--latest/u);
     assert.match(releaseWorkflow, /GITHUB_TOKEN: \$\{\{ github\.token \}\}/u);
     assert.match(releaseWorkflow, /TAURI_SIGNING_PRIVATE_KEY: \$\{\{ secrets\.TAURI_SIGNING_PRIVATE_KEY \}\}/u);
     assert.match(
@@ -71,7 +80,10 @@ test('界面使用专属图标并通过签名更新器发布新版本', () => {
 test('主要窗口标题体现小允翻译品牌', () => {
     const windowSource = readProjectFile('src-tauri/src/window.rs');
 
-    assert.match(windowSource, /"main", WebviewUrl::App\("index\.html"\.into\(\)\)[\s\S]*?\.title\("小允翻译"\)/u);
+    assert.match(
+        windowSource,
+        /"main", WebviewUrl::App\("index\.html"\.into\(\)\)[\s\S]*?\.title\("小允翻译——论文阅读器"\)/u,
+    );
     assert.match(windowSource, /"translate",[\s\S]*?\.title\("小允翻译"\)/u);
     assert.match(windowSource, /\.title\("小允翻译 - 截图"\)/u);
     assert.doesNotMatch(windowSource, /pub fn updater_window/u);

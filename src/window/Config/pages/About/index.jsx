@@ -15,7 +15,7 @@ export default function About() {
                 draggable={false}
                 alt='小允翻译'
             />
-            <h1 className='text-center text-2xl font-bold'>小允翻译</h1>
+            <h1 className='text-center text-2xl font-bold'>小允翻译——论文阅读器</h1>
             <p className='mb-[8px] text-center text-sm text-gray-500'>版本 {appVersion}</p>
             <p className='mb-[20px] text-center text-sm text-gray-500'>
                 本地优先的学术翻译与论文阅读器

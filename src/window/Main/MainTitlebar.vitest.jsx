@@ -20,7 +20,7 @@ describe('主窗口标题栏', () => {
             />
         );
 
-        expect(screen.getByText('v4.6.0')).toBeTruthy();
+        expect(screen.getByText('v4.6.5')).toBeTruthy();
         fireEvent.click(screen.getByRole('button', { name: '翻译' }));
         expect(onNavigate).toHaveBeenCalledWith('translate');
         fireEvent.click(screen.getByRole('button', { name: '文件翻译' }));

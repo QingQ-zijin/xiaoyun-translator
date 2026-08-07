@@ -247,7 +247,7 @@ function updaterStatusCopy(updater) {
     if (updater.supported === false) {
         return {
             title: '当前平台暂不支持一键更新',
-            detail: '正式自动更新目前仅发布 Windows x64；请从 GitHub Actions 获取其他平台试验包。',
+            detail: '请前往 GitHub Releases 下载适合当前系统的安装包。',
         };
     }
     if (updater.error) {
@@ -936,7 +936,7 @@ export default function SettingsPanel({ platform = desktopPlatform, updater = BR
                         id='updates'
                         Icon={PiDownloadSimple}
                         title='软件更新'
-                        description='从 GitHub Release 检查并安装经过签名验证的正式版本；当前一键更新支持 Windows x64。'
+                        description='从 GitHub Releases 检查并安装经过 Tauri 签名验证的 Windows、macOS 或 Linux 正式版本。'
                         active={activeSection === 'updates'}
                     >
                         <div className='settings-update-summary'>

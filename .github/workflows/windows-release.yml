@@ -1,4 +1,4 @@
-name: Windows release
+name: Desktop release
 
 on:
     push:
@@ -9,12 +9,15 @@ permissions:
     contents: write
 
 concurrency:
-    group: windows-release-${{ github.ref }}
+    group: desktop-release-${{ github.ref }}
     cancel-in-progress: false
 
+env:
+    CARGO_TERM_COLOR: always
+
 jobs:
-    build:
-        name: Build signed Windows x64 updater
+    windows:
+        name: Windows x64
         runs-on: windows-latest
         env:
             RELEASE_TAG: ${{ github.ref_name }}
@@ -60,17 +63,10 @@ jobs:
                   $tauriVersion = (Get-Content -Raw 'src-tauri/tauri.conf.json' | ConvertFrom-Json).version
                   $cargoText = Get-Content -Raw 'src-tauri/Cargo.toml'
                   $cargoMatch = [regex]::Match($cargoText, '(?ms)^\[package\].*?^version\s*=\s*"([^"]+)"')
-                  if (-not $cargoMatch.Success) {
-                      throw 'Could not read the Cargo package version.'
-                  }
+                  if (-not $cargoMatch.Success) { throw 'Could not read the Cargo package version.' }
                   $cargoVersion = $cargoMatch.Groups[1].Value
-                  if (@($packageVersion, $tauriVersion, $cargoVersion) |
-                      Where-Object { $_ -ne $tagVersion }) {
+                  if (@($packageVersion, $tauriVersion, $cargoVersion) | Where-Object { $_ -ne $tagVersion }) {
                       throw "Version mismatch: tag=$tagVersion package=$packageVersion tauri=$tauriVersion cargo=$cargoVersion"
-                  }
-                  $headTag = git tag --points-at HEAD --list $env:RELEASE_TAG
-                  if ($headTag -ne $env:RELEASE_TAG) {
-                      throw "HEAD is not tagged with $env:RELEASE_TAG"
                   }
 
             - name: Verify updater signing secrets
@@ -95,19 +91,18 @@ jobs:
             - name: Run strict Rust lint
               run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
-            - name: Build and publish signed updater artifacts
-              id: tauri
+            - name: Build signed Windows updater and create draft release
               uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
               with:
                   tagName: ${{ env.RELEASE_TAG }}
-                  releaseName: 小允翻译 ${{ env.RELEASE_TAG }}
+                  releaseName: 小允翻译——论文阅读器 ${{ env.RELEASE_TAG }}
                   generateReleaseNotes: true
                   releaseDraft: true
                   prerelease: false
                   uploadUpdaterJson: true
                   updaterJsonPreferNsis: true
                   uploadUpdaterSignatures: true
-                  releaseAssetNamePattern: xiaoyun-translator_[version]_[arch][setup][ext]
+                  releaseAssetNamePattern: xiaoyun-translator_[version]_windows-[arch][setup][ext]
                   uploadWorkflowArtifacts: true
                   workflowArtifactNamePattern: xiaoyun-translator-windows-[platform]-[arch]
                   args: --config src-tauri/tauri.release.conf.json
@@ -116,85 +111,292 @@ jobs:
                   TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
                   TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
-            - name: Validate updater assets and attach SHA-256 checksum
+            - name: Attach Windows checksum
               shell: pwsh
               run: |
-                  $expectedVersion = (Get-Content -Raw 'package.json' | ConvertFrom-Json).version
-                  $localInstallers = @(Get-ChildItem 'src-tauri/target/release/bundle/nsis/*-setup.exe')
-                  if ($localInstallers.Count -ne 1) {
-                      throw "Expected one local NSIS installer, found $($localInstallers.Count)."
-                  }
-                  $installer = $localInstallers[0]
+                  $installer = @(Get-ChildItem 'src-tauri/target/release/bundle/nsis/*-setup.exe')
+                  if ($installer.Count -ne 1) { throw "Expected one NSIS installer, found $($installer.Count)." }
                   $release = gh release view $env:RELEASE_TAG --json assets,isDraft | ConvertFrom-Json
-                  if (-not $release.isDraft) {
-                      throw 'The release must remain a draft until all updater assets are validated.'
-                  }
-                  $assetNames = @($release.assets | ForEach-Object { $_.name })
-                  $installerAssets = @($release.assets | Where-Object { $_.name -like 'xiaoyun-translator_*-setup.exe' })
-                  $latestAssets = @($release.assets | Where-Object { $_.name -eq 'latest.json' })
-                  if ($installerAssets.Count -ne 1 -or $latestAssets.Count -ne 1) {
-                      throw "Expected one installer and latest.json; assets: $($assetNames -join ', ')"
-                  }
-                  $installerAssetData = $installerAssets[0]
-                  $installerAsset = [string]$installerAssetData.name
-                  $signatureAsset = "$installerAsset.sig"
-                  if (@($assetNames | Where-Object { $_ -eq $signatureAsset }).Count -ne 1) {
-                      throw "Updater signature asset is missing: $signatureAsset"
-                  }
-                  $validationDir = Join-Path 'release' 'validation'
-                  New-Item -ItemType Directory -Force -Path $validationDir | Out-Null
-                  gh release download $env:RELEASE_TAG --pattern 'latest.json' --pattern $signatureAsset --dir $validationDir --clobber
-                  $latest = Get-Content -Raw (Join-Path $validationDir 'latest.json') | ConvertFrom-Json
-                  if ($latest.version -ne $expectedVersion) {
-                      throw "latest.json version $($latest.version) does not match $expectedVersion."
-                  }
-                  $windowsPlatforms = @(
-                      $latest.platforms.PSObject.Properties |
-                          Where-Object { $_.Name -match '^windows-x86_64' }
-                  )
-                  if ($windowsPlatforms.Count -lt 1) {
-                      throw 'latest.json must contain a Windows x86_64 platform.'
-                  }
-                  $platformProperty = $windowsPlatforms |
-                      Where-Object { $_.Name -eq 'windows-x86_64-nsis' } |
-                      Select-Object -First 1
-                  if ($null -eq $platformProperty) {
-                      $platformProperty = $windowsPlatforms |
-                          Where-Object { $_.Name -eq 'windows-x86_64' } |
-                          Select-Object -First 1
-                  }
-                  if ($null -eq $platformProperty) {
-                      throw "latest.json has unsupported Windows platform keys: $($windowsPlatforms.Name -join ', ')"
-                  }
-                  $platform = $platformProperty.Value
-                  $conflictingPlatforms = @(
-                      $windowsPlatforms |
-                          Where-Object {
-                              ([string]$_.Value.url -ne [string]$platform.url) -or
-                              ([string]$_.Value.signature).Trim() -ne ([string]$platform.signature).Trim()
-                          }
-                  )
-                  if ($conflictingPlatforms.Count -gt 0) {
-                      throw 'latest.json Windows platform aliases do not point to the same signed installer.'
-                  }
-                  $decodedUrl = [Uri]::UnescapeDataString([string]$platform.url)
-                  $installerApiUrl = [string]$installerAssetData.apiUrl
-                  if ($decodedUrl -ne $installerApiUrl -and -not $decodedUrl.EndsWith("/$installerAsset")) {
-                      throw "latest.json points to an unexpected installer: $decodedUrl"
-                  }
-                  $signature = (Get-Content -Raw (Join-Path $validationDir $signatureAsset)).Trim()
-                  if ([string]::IsNullOrWhiteSpace($signature) -or $signature -ne ([string]$platform.signature).Trim()) {
-                      throw 'latest.json signature does not match the uploaded signature asset.'
-                  }
-                  $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer.FullName).Hash
-                  "$hash *$installerAsset" |
-                      Set-Content -Encoding utf8 'release/checksums-windows-x64.txt'
+                  if (-not $release.isDraft) { throw 'Release must remain draft until every platform is ready.' }
+                  $asset = @($release.assets | Where-Object { $_.name -like 'xiaoyun-translator_*_windows-*-setup.exe' })
+                  if ($asset.Count -ne 1) { throw 'Windows installer asset is missing.' }
+                  $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer[0].FullName).Hash.ToLowerInvariant()
+                  New-Item -ItemType Directory -Force -Path release | Out-Null
+                  "$hash *$($asset[0].name)" | Set-Content -Encoding utf8 'release/checksums-windows-x64.txt'
                   gh release upload $env:RELEASE_TAG 'release/checksums-windows-x64.txt' --clobber
               env:
                   GH_TOKEN: ${{ github.token }}
 
-            - name: Publish validated release
-              shell: pwsh
-              run: gh release edit $env:RELEASE_TAG --draft=false --latest
+    macos:
+        name: macOS ${{ matrix.name }}
+        runs-on: ${{ matrix.runner }}
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - name: Apple Silicon
+                      runner: macos-15
+                      machine: arm64
+                      target: aarch64-apple-darwin
+                      artifact_arch: arm64
+                      updater_arch: aarch64
+                    - name: Intel
+                      runner: macos-15-intel
+                      machine: x86_64
+                      target: x86_64-apple-darwin
+                      artifact_arch: x64
+                      updater_arch: x86_64
+
+        steps:
+            - name: Checkout source
+              uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+            - name: Verify runner architecture
+              run: test "$(uname -m)" = "${{ matrix.machine }}"
+
+            - name: Set up pnpm
+              uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+              with:
+                  version: 10.18.1
+
+            - name: Set up Node.js
+              uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+              with:
+                  node-version: '22'
+                  cache: pnpm
+
+            - name: Set up Rust
+              uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+              with:
+                  toolchain: stable
+                  targets: ${{ matrix.target }}
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+              with:
+                  workspaces: src-tauri
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Run native Rust tests and lint
+              run: |
+                  cargo test --manifest-path src-tauri/Cargo.toml --all-targets
+                  cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+            - name: Build macOS bundles and signed updater archive
+              run: pnpm tauri build --target "${{ matrix.target }}" --bundles app,dmg --config src-tauri/tauri.release.conf.json
               env:
-                  GH_TOKEN: ${{ github.token }}
+                  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+                  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+            - name: Prepare macOS release assets
+              shell: bash
+              env:
+                  ARTIFACT_ARCH: ${{ matrix.artifact_arch }}
+                  TARGET: ${{ matrix.target }}
+              run: |
+                  set -euo pipefail
+                  shopt -s nullglob
+                  version="$(node -p "require('./package.json').version")"
+                  root="src-tauri/target/${TARGET}/release/bundle"
+                  apps=("${root}"/macos/*.app)
+                  dmgs=("${root}"/dmg/*.dmg)
+                  updates=("${root}"/macos/*.app.tar.gz)
+                  signatures=("${root}"/macos/*.app.tar.gz.sig)
+                  if [[ ${#apps[@]} -ne 1 || ${#dmgs[@]} -ne 1 || ${#updates[@]} -ne 1 || ${#signatures[@]} -ne 1 ]]; then
+                      echo 'Expected one app, dmg, updater archive and updater signature.' >&2
+                      find "${root}" -maxdepth 3 -type f -print >&2 || true
+                      exit 1
+                  fi
+                  out="release/macos-${ARTIFACT_ARCH}"
+                  mkdir -p "${out}"
+                  app_zip="xiaoyun-translator_${version}_macos-${ARTIFACT_ARCH}.app.zip"
+                  dmg="xiaoyun-translator_${version}_macos-${ARTIFACT_ARCH}.dmg"
+                  update="xiaoyun-translator_${version}_macos-${ARTIFACT_ARCH}.app.tar.gz"
+                  ditto -c -k --sequesterRsrc --keepParent "${apps[0]}" "${out}/${app_zip}"
+                  cp "${dmgs[0]}" "${out}/${dmg}"
+                  cp "${updates[0]}" "${out}/${update}"
+                  cp "${signatures[0]}" "${out}/${update}.sig"
+                  (cd "${out}" && shasum -a 256 "${app_zip}" "${dmg}" "${update}" > "checksums-macos-${ARTIFACT_ARCH}.txt")
+
+            - name: Upload macOS release assets
+              uses: actions/upload-artifact@v4
+              with:
+                  name: xiaoyun-release-macos-${{ matrix.artifact_arch }}
+                  path: release/macos-${{ matrix.artifact_arch }}/
+                  if-no-files-found: error
+                  retention-days: 7
+
+    linux:
+        name: Linux x64
+        runs-on: ubuntu-22.04
+
+        steps:
+            - name: Checkout source
+              uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+            - name: Install Tauri and application dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y \
+                      libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+                      xdg-utils libxcb1 libxrandr2 libdbus-1-3 tesseract-ocr espeak-ng
+
+            - name: Set up pnpm
+              uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+              with:
+                  version: 10.18.1
+
+            - name: Set up Node.js
+              uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+              with:
+                  node-version: '22'
+                  cache: pnpm
+
+            - name: Set up Rust
+              uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+              with:
+                  toolchain: stable
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+              with:
+                  workspaces: src-tauri
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Run native Rust tests and lint
+              run: |
+                  cargo test --manifest-path src-tauri/Cargo.toml --all-targets
+                  cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+            - name: Build Linux packages and signed updater
+              run: pnpm tauri build --bundles deb,appimage --config src-tauri/tauri.release.conf.json
+              env:
+                  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+                  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+            - name: Prepare Linux release assets
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  shopt -s nullglob
+                  version="$(node -p "require('./package.json').version")"
+                  debs=(src-tauri/target/release/bundle/deb/*.deb)
+                  appimages=(src-tauri/target/release/bundle/appimage/*.AppImage)
+                  signatures=(src-tauri/target/release/bundle/appimage/*.AppImage.sig)
+                  if [[ ${#debs[@]} -ne 1 || ${#appimages[@]} -ne 1 || ${#signatures[@]} -ne 1 ]]; then
+                      echo 'Expected one deb, AppImage and updater signature.' >&2
+                      find src-tauri/target/release/bundle -maxdepth 3 -type f -print >&2 || true
+                      exit 1
+                  fi
+                  out='release/linux-x64'
+                  mkdir -p "${out}"
+                  deb="xiaoyun-translator_${version}_linux-x64.deb"
+                  appimage="xiaoyun-translator_${version}_linux-x64.AppImage"
+                  install -m 0644 "${debs[0]}" "${out}/${deb}"
+                  install -m 0755 "${appimages[0]}" "${out}/${appimage}"
+                  cp "${signatures[0]}" "${out}/${appimage}.sig"
+                  (cd "${out}" && sha256sum "${deb}" "${appimage}" > checksums-linux-x64.txt)
+
+            - name: Upload Linux release assets
+              uses: actions/upload-artifact@v4
+              with:
+                  name: xiaoyun-release-linux-x64
+                  path: release/linux-x64/
+                  if-no-files-found: error
+                  retention-days: 7
+
+    publish:
+        name: Publish unified release
+        runs-on: ubuntu-22.04
+        needs: [windows, macos, linux]
+        env:
+            GH_TOKEN: ${{ github.token }}
+            RELEASE_TAG: ${{ github.ref_name }}
+
+        steps:
+            - name: Checkout source
+              uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+            - name: Download macOS and Linux assets
+              uses: actions/download-artifact@v4
+              with:
+                  pattern: xiaoyun-release-*
+                  path: release/platforms
+                  merge-multiple: true
+
+            - name: Upload platform assets to draft release
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  while IFS= read -r -d '' file; do
+                      gh release upload "${RELEASE_TAG}" "${file}" --clobber
+                  done < <(find release/platforms -type f -print0)
+
+            - name: Build and validate unified updater manifest
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  mkdir -p release/manifest
+                  gh release download "${RELEASE_TAG}" --pattern latest.json --dir release/manifest --clobber
+                  node --input-type=module <<'NODE'
+                  import fs from 'node:fs';
+                  import path from 'node:path';
+
+                  const releaseTag = process.env.RELEASE_TAG;
+                  const repository = process.env.GITHUB_REPOSITORY;
+                  const version = JSON.parse(fs.readFileSync('package.json', 'utf8')).version;
+                  const root = 'release/platforms';
+                  const files = fs.readdirSync(root);
+                  const one = (pattern) => {
+                      const matches = files.filter((name) => pattern.test(name));
+                      if (matches.length !== 1) throw new Error(`Expected one ${pattern}, found: ${matches.join(', ')}`);
+                      return matches[0];
+                  };
+                  const signature = (file) => fs.readFileSync(path.join(root, `${file}.sig`), 'utf8').trim();
+                  const url = (file) => `https://github.com/${repository}/releases/download/${releaseTag}/${file}`;
+                  const arm = one(/_macos-arm64\.app\.tar\.gz$/u);
+                  const intel = one(/_macos-x64\.app\.tar\.gz$/u);
+                  const linux = one(/_linux-x64\.AppImage$/u);
+                  const manifestPath = 'release/manifest/latest.json';
+                  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+                  if (manifest.version !== version) throw new Error(`Manifest version ${manifest.version} != ${version}`);
+                  manifest.platforms['darwin-aarch64'] = { url: url(arm), signature: signature(arm) };
+                  manifest.platforms['darwin-x86_64'] = { url: url(intel), signature: signature(intel) };
+                  manifest.platforms['linux-x86_64'] = { url: url(linux), signature: signature(linux) };
+                  const required = ['windows-x86_64', 'darwin-aarch64', 'darwin-x86_64', 'linux-x86_64'];
+                  for (const key of required) {
+                      if (key === 'windows-x86_64') {
+                          const windows = Object.keys(manifest.platforms).some((name) => name.startsWith('windows-x86_64'));
+                          if (!windows) throw new Error('Windows x86_64 updater entry is missing.');
+                          continue;
+                      }
+                      const entry = manifest.platforms[key];
+                      if (!entry?.url || !entry?.signature) throw new Error(`Incomplete updater entry: ${key}`);
+                  }
+                  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+                  NODE
+                  gh release upload "${RELEASE_TAG}" release/manifest/latest.json --clobber
+
+            - name: Validate release assets and publish
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  expected=(
+                      latest.json
+                      checksums-windows-x64.txt
+                      checksums-macos-arm64.txt
+                      checksums-macos-x64.txt
+                      checksums-linux-x64.txt
+                  )
+                  assets="$(gh release view "${RELEASE_TAG}" --json assets --jq '.assets[].name')"
+                  for name in "${expected[@]}"; do
+                      grep -Fxq "${name}" <<<"${assets}" || { echo "Missing release asset: ${name}" >&2; exit 1; }
+                  done
+                  gh release edit "${RELEASE_TAG}" \
+                      --title "小允翻译——论文阅读器 ${RELEASE_TAG}" \
+                      --draft=false \
+                      --latest

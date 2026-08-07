@@ -107,7 +107,7 @@ describe('useAppUpdater', () => {
         expect(screen.queryByRole('status', { name: '软件更新通知' })).toBeNull();
     });
 
-    it('非 Windows 桌面端不连接仅含 Windows 资产的正式更新源', async () => {
+    it('macOS 桌面端连接包含对应平台资产的正式更新源', async () => {
         const check = vi.fn();
         const options = {
             ...updaterOptions({ check }),
@@ -116,11 +116,8 @@ describe('useAppUpdater', () => {
 
         render(<UpdaterHarness options={options} />);
         fireEvent.click(screen.getByRole('button', { name: '重复检查' }));
-        fireEvent.click(screen.getByRole('button', { name: '重复安装' }));
-
-        await Promise.resolve();
-        expect(check).not.toHaveBeenCalled();
-        expect(screen.getByLabelText('更新阶段').textContent).toBe(APP_UPDATE_PHASE.IDLE);
+        await waitFor(() => expect(check).toHaveBeenCalledTimes(1));
+        expect(screen.getByLabelText('更新阶段').textContent).toBe(APP_UPDATE_PHASE.UP_TO_DATE);
         expect(screen.queryByRole('status', { name: '软件更新通知' })).toBeNull();
     });
 

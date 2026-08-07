@@ -34,7 +34,7 @@ Ollama 是一个**需要单独安装、在后台运行的本地 AI 程序**。�
 -   **已经显示“本地 AI 已准备好”**：在首次向导中点击“开始使用”；若你位于设置页，确认开关已开启并保存设置。再用记事本测试，不要先在浏览器中测试，因为浏览器可能占用 `Ctrl+D`；
 -   **仍未成功**：从系统托盘依次退出 Ollama 和小允翻译，重新打开后再检测。需要进一步诊断时再使用 [Ollama 命令行排错](./OLLAMA.md#故障排查)。
 
-> Windows 10 22H2/11 x64 是当前主要验证和 Release 发布平台。macOS Apple Silicon/Intel 与 Linux x64 只有未签名的 CI 试验构建，尚未完成实体设备端到端验证；请先阅读[跨平台说明](./CROSS_PLATFORM.md)。
+> 4.6.5 起正式 Release 同时提供 Windows x64、macOS Apple Silicon/Intel 和 Linux x64。macOS 当前未做 Apple 公证，Linux Wayland 的外部全局取词受桌面安全策略限制；安装前请阅读[跨平台说明](./CROSS_PLATFORM.md)。
 
 ## 1. 安装前检查
 
@@ -182,7 +182,7 @@ TeX 可在“设置 → 文献存储”选择 `auto`、Tectonic、XeLaTeX、pdfL
 点击“立即更新”后，应用会显示下载进度，验证更新签名，安装完成后自动重启。若当前版本早于首个内置更新器的桥接版本，需要先从
 [最新 Release](https://github.com/QingQ-zijin/xiaoyun-translator/releases/latest) 手动安装一次，之后即可使用应用内更新。
 
-当前正式一键更新支持 Windows x64。更新失败不会影响现有版本继续使用；请检查网络后重试，或从 Release 页面手动下载安装包。
+正式一键更新支持 Windows x64、macOS Apple Silicon/Intel 与 Linux AppImage。更新失败不会影响现有版本继续使用；请检查网络后重试，或从 Release 页面手动下载安装包。
 
 ## 11. 获取帮助
 

@@ -59,7 +59,7 @@ export default function MainTitlebar({ active, onNavigate }) {
                     src='/icon.png'
                     alt=''
                 />
-                <strong>小允翻译</strong>
+                <strong>小允翻译——论文阅读器</strong>
                 <span>v{packageMetadata.version}</span>
             </div>
             <nav
